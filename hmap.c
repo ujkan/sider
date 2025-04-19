@@ -14,6 +14,7 @@ int hash(char *key, int kssize) {
   }
   return h % kssize;
 }
+
 int hash_fnv1(char *key, int kssize) {
   // FNV-1a hash algorithm constants
   const unsigned int FNV_PRIME = 16777619;
@@ -49,13 +50,11 @@ bucket_item *bkappend(bucket b, char *key, char *value) {
 
 // maybe return ptr to bucket_item to avoid returning structs
 bucket_item *bksearch(bucket b, char *key) {
-  // db "123"
   for (bucket_item *curr = b; curr != NULL; curr = curr->next) {
     if (strcmp((curr->p).key, key) == 0) {
       return curr;
     }
   }
-  // db guess: -1 since curr == NULL
   return NULL;
 }
 
@@ -129,10 +128,6 @@ int hashmap_upsert(hashmap *map, char *key, char *value) {
     bucket *data = map->data;
 
     int index = (map->hashfn)(key, map->cap);
-    // db index = some val <128
-    //  data[i] stores pointer to heap
-    //  where char* is stored
-    //  question: why not just use char*?
     bucket_item *search_item = bksearch(data[index], key);
     if (search_item == NULL) { // no exist, insert
       pair p = {.key = key, .value = value};
