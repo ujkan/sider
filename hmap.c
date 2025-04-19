@@ -39,6 +39,23 @@ int hash(char *key, int kssize) {
   }
   return h % kssize;
 }
+int hash_fnv1(char *key, int kssize) {
+  // FNV-1a hash algorithm constants
+  const unsigned int FNV_PRIME = 16777619;
+  const unsigned int FNV_OFFSET_BASIS = 2166136261;
+
+  // Initialize hash with the offset basis
+  unsigned int hash = FNV_OFFSET_BASIS;
+
+  // Process each byte in the key
+  for (char *p = key; *p != '\0'; p++) {
+    hash ^= (unsigned char)*p; // XOR with the current byte
+    hash *= FNV_PRIME;         // Multiply by the prime
+  }
+
+  // Return the hash value within the key space
+  return (int)(hash % kssize);
+}
 
 bucket_item *bkappend(bucket b, char *key, char *value) {
   bucket_item *new_item = malloc(sizeof(bucket_item));
