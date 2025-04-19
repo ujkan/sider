@@ -88,6 +88,17 @@ void hashmap_rehash(hashmap *map) {
   map->data = new_data; // use after free? or assignment ok?
 }
 
+void hashmap_print_keys(hashmap *map) {
+  bucket curr;
+  for (int i = 0; i < map->cap; i++) {
+    curr = map->data[i];
+    PRINT("bucket %d", i);
+    for (; curr != NULL; curr = curr->next) {
+      PRINT("  key=%s", curr->p.key);
+    }
+  }
+}
+
 int hashmap_upsert(hashmap *map, char *key, char *value) {
   if (map->size < map->cap) {
     bucket *data = map->data;
