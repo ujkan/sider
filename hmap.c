@@ -284,12 +284,68 @@ void test_upsert_bucket_not_null() {
   hashmap_destroy(&map);
 }
 
+void test_upsert_rehash_bucket_not_null() {
+  printf("test_upsert_rehash_bucket_not_null - ");
+  int failed = 0;
+
+  // setting up
+  hashmap map;
+  hashmap_init(&map, 2);
+  map.hashfn = dumb_hashfn;
+  // inserting some elements in same bucket
+  hashmap_upsert(&map, "key1", "value1");
+  DPRINT("  after first upsert");
+  DPRINT("    data[0] key=%s", map.data[0]->p.key);
+  if (strcmp(map.data[0]->p.key, "key1") != 0) {
+    failed = 1;
+  }
+  hashmap_upsert(&map, "key2", "value2");
+  DPRINT("  after second upsert");
+  DPRINT("    data[0] key=%s", map.data[0]->p.key);
+  DPRINT("    data[0] next key=%s", map.data[0]->next->p.key);
+  if (strcmp(map.data[0]->p.key, "key1") != 0) {
+    failed = 1;
+  }
+  if (strcmp(map.data[0]->next->p.key, "key2") != 0) {
+    failed = 1;
+  }
+
+  // this is starting state
+  int init_cap = map.cap;
+  int init_size = map.size;
+  char *key = "expected_key";
+  char *value = "expected_value";
+
+  // when
+  // rehash will occur, so expected cap is 2*init_cap
+  int index = hashmap_upsert(&map, key, value);
+
+  // then
+  if (strcmp(map.data[index]->next->next->p.key, key) == 0 &&
+      strcmp(map.data[index]->next->next->p.value, value) == 0 &&
+      map.size == init_size + 1 && map.cap == 2 * init_cap) {
+    PASS;
+  } else {
+    FAIL;
+    bucket_item *item = map.data[index]->next->next;
+    PRINT("  index: %d", index);
+    PRINT("  item key: %s", item->p.key);
+    PRINT("  item value: %s", item->p.value);
+    PRINT("  item next: %p", item->next);
+    PRINT("  map size: %d", map.size);
+    PRINT("  map cap: %d", map.cap);
+  }
+  hashmap_print_keys(&map);
+  hashmap_destroy(&map);
+}
+
 int main(void) {
   test_bksearch();
   test_bkappend_null();
   test_bkappend_not_null();
   test_upsert_bucket_is_null();
   test_upsert_bucket_not_null();
+  test_upsert_rehash_bucket_not_null();
 }
 
 // int main(void) {
