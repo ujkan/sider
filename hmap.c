@@ -1,3 +1,4 @@
+#include <stdarg.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -21,7 +22,15 @@ typedef struct hashmap {
   int (*hashfn)(char *, int);
 } hashmap;
 
-#define PRINT(format, ...) printf(format "\n", ##__VA_ARGS__)
+static inline void print_message(const char *format, ...) {
+    va_list args;
+    va_start(args, format);
+    vprintf(format, args);
+    printf("\n");
+    va_end(args);
+}
+
+#define PRINT(...) print_message(__VA_ARGS__)
 #ifdef DEBUG
 #define DPRINT(format, ...) printf(format "\n", ##__VA_ARGS__)
 #else
