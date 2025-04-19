@@ -370,6 +370,59 @@ void test_upsert_rehash_bucket_not_null() {
   hashmap_print_keys(&map);
   hashmap_destroy(&map);
 }
+/**
+ * C++ version 0.4 char* style "itoa":
+ * Written by Lukás Chmela
+ * Released under GPLv3.
+ */
+char *itoa(int value, char *result, int base) {
+  // check that the base if valid
+  if (base < 2 || base > 36) {
+    *result = '\0';
+    return result;
+  }
+
+  char *ptr = result, *ptr1 = result, tmp_char;
+  int tmp_value;
+
+  do {
+    tmp_value = value;
+    value /= base;
+    *ptr++ = "zyxwvutsrqponmlkjihgfedcba9876543210123456789abcdefghijklmnopqrst"
+             "uvwxyz"[35 + (tmp_value - value * base)];
+  } while (value);
+
+  // Apply negative sign
+  if (tmp_value < 0)
+    *ptr++ = '-';
+  *ptr-- = '\0';
+
+  // Reverse the string
+  while (ptr1 < ptr) {
+    tmp_char = *ptr;
+    *ptr-- = *ptr1;
+    *ptr1++ = tmp_char;
+  }
+  return result;
+}
+void test_upsert() {
+  printf("test_upsert - ");
+  hashmap map;
+  hashmap_init(&map, 2);
+
+  for (int i = 1; i <= 128; i++) {
+    char *to_str = malloc(5 * sizeof(char));
+    itoa(i, to_str, 10);
+    hashmap_upsert(&map, to_str, "value");
+    if ((i & (i - 1)) == 0) {
+      hashmap_print_keys_compact(&map);
+      PRINT("-----------");
+    }
+  }
+  hashmap_print_keys_compact(&map);
+
+  hashmap_destroy(&map);
+}
 
 int main(void) {
   test_bksearch();
