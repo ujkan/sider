@@ -23,11 +23,11 @@ typedef struct hashmap {
 } hashmap;
 
 static inline void print_message(const char *format, ...) {
-    va_list args;
-    va_start(args, format);
-    vprintf(format, args);
-    printf("\n");
-    va_end(args);
+  va_list args;
+  va_start(args, format);
+  vprintf(format, args);
+  printf("\n");
+  va_end(args);
 }
 
 #define PRINT(...) print_message(__VA_ARGS__)
@@ -65,6 +65,7 @@ int hash_fnv1(char *key, int kssize) {
   // Return the hash value within the key space
   return (int)(hash % kssize);
 }
+int dumb_hashfn(char *key, int size) { return 0; }
 
 bucket_item *bkappend(bucket b, char *key, char *value) {
   bucket_item *new_item = malloc(sizeof(bucket_item));
@@ -197,6 +198,13 @@ char *hashmap_get(hashmap *map, char *key) {
   }
 }
 
+int hashmap_delete(hashmap *map, char *key) {
+  int index = (map->hashfn)(key, map->cap);
+  bucket bkt = map->data[index];
+  int ret = bkdelete(bkt, key);
+  return ret;
+}
+
 void hashmap_init(hashmap *map, int init_cap) {
   map->cap = init_cap;
   map->size = 0;
@@ -298,8 +306,6 @@ void test_upsert_bucket_is_null() {
   }
   hashmap_destroy(&map);
 }
-
-int dumb_hashfn(char *key, int size) { return 0; }
 
 void test_upsert_bucket_not_null() {
   printf("test_upsert_bucket_not_null - ");
@@ -405,7 +411,9 @@ void test_upsert_rehash_bucket_not_null() {
     PRINT("  map size: %d", map.size);
     PRINT("  map cap: %d", map.cap);
   }
+#ifdef DEBUG
   hashmap_print_keys(&map);
+#endif /* ifdef DEBUG */
   hashmap_destroy(&map);
 }
 /**
@@ -452,14 +460,51 @@ void test_upsert() {
     char *to_str = malloc(5 * sizeof(char));
     itoa(i, to_str, 10);
     hashmap_upsert(&map, to_str, "value");
+
+#ifdef DEBUG
     if ((i & (i - 1)) == 0) {
       hashmap_print_keys_compact(&map);
       PRINT("-----------");
     }
+#endif /* ifdef DEBUG */
   }
+#ifdef DEBUG
   hashmap_print_keys_compact(&map);
+#endif
 
   hashmap_destroy(&map);
+}
+
+void test_get() {
+  printf("test_get - ");
+  int failed = 0;
+  hashmap map;
+  hashmap_init(&map, 3);
+  hashmap_upsert(&map, "k1", "v1");
+  hashmap_upsert(&map, "k2", "v2");
+  hashmap_upsert(&map, "k3", "v3");
+  hashmap_upsert(&map, "k4", "v4");
+  hashmap_upsert(&map, "k5", "v5");
+  if (strcmp(hashmap_get(&map, "k1"), "v1") != 0) {
+    failed = 1;
+  }
+  if (strcmp(hashmap_get(&map, "k2"), "v2") != 0) {
+    failed = 1;
+  }
+  if (strcmp(hashmap_get(&map, "k3"), "v3") != 0) {
+    failed = 1;
+  }
+  if (strcmp(hashmap_get(&map, "k4"), "v4") != 0) {
+    failed = 1;
+  }
+  if (strcmp(hashmap_get(&map, "k5"), "v5") != 0) {
+    failed = 1;
+  }
+  if (failed == 1) {
+    FAIL;
+  } else {
+    PASS;
+  }
 }
 
 int main(void) {
@@ -469,6 +514,8 @@ int main(void) {
   test_upsert_bucket_is_null();
   test_upsert_bucket_not_null();
   test_upsert_rehash_bucket_not_null();
+  test_upsert();
+  test_get();
 }
 
 // int main(void) {
