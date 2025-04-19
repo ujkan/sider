@@ -159,11 +159,22 @@ int hashmap_upsert(hashmap *map, char *key, char *value) {
   return -1;
 }
 
+char *hashmap_get(hashmap *map, char *key) {
+  int index = (map->hashfn)(key, map->cap);
+  bucket bkt = map->data[index];
+  bucket_item *search_item = bksearch(bkt, key);
+  if (search_item == NULL) {
+    return NULL;
+  } else {
+    return search_item->p.value;
+  }
+}
+
 void hashmap_init(hashmap *map, int init_cap) {
   map->cap = init_cap;
   map->size = 0;
   map->data = malloc((map->cap) * sizeof(map->data));
-  map->hashfn = hash;
+  map->hashfn = hash_fnv1;
 }
 
 void hashmap_destroy(hashmap *map) {
