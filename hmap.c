@@ -105,6 +105,21 @@ void hashmap_rehash(hashmap *map) {
   map->data = new_data; // use after free? or assignment ok?
 }
 
+void hashmap_print_keys_compact(hashmap *map) {
+  bucket curr;
+  for (int i = 0; i < map->cap; i++) {
+    curr = map->data[i];
+    if (curr == NULL) {
+      continue;
+    }
+    printf("%3d  ", i);
+    for (; curr != NULL; curr = curr->next) {
+      printf("%s -> ", curr->p.key);
+    }
+    printf("/\n");
+  }
+}
+
 void hashmap_print_keys(hashmap *map) {
   bucket curr;
   for (int i = 0; i < map->cap; i++) {
