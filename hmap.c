@@ -18,9 +18,15 @@ typedef struct hashmap {
   bucket *data; // dynamic array of buckets
   int size;
   int cap;
+  int (*hashfn)(char *, int);
 } hashmap;
 
 #define PRINT(format, ...) printf(format "\n", ##__VA_ARGS__)
+#ifdef DEBUG
+#define DPRINT(format, ...) printf(format "\n", ##__VA_ARGS__)
+#else
+#define DPRINT(format, ...) ((void)0) /* do nothing */
+#endif
 #define PASS PRINT("Test passed");
 #define FAIL PRINT("Test failed");
 
@@ -71,7 +77,7 @@ void hashmap_rehash(hashmap *map) {
     // for each entry in old bucket append to a bucket in the new data
     while (curr != NULL) {
       char *key = (curr->p).key;
-      int index = hash(key, map->cap);
+      int index = (map->hashfn)(key, map->cap);
       new_data[index] = bkappend(new_data[index], key, curr->p.value);
       curr = curr->next;
     }
@@ -86,7 +92,7 @@ int hashmap_upsert(hashmap *map, char *key, char *value) {
   if (map->size < map->cap) {
     bucket *data = map->data;
 
-    int index = hash(key, map->cap);
+    int index = (map->hashfn)(key, map->cap);
     // db index = some val <128
     //  data[i] stores pointer to heap
     //  where char* is stored
@@ -110,9 +116,10 @@ int hashmap_upsert(hashmap *map, char *key, char *value) {
 }
 
 void hashmap_init(hashmap *map) {
-  map->cap = 2;
+  map->cap = 6;
   map->size = 0;
   map->data = malloc((map->cap) * sizeof(map->data));
+  map->hashfn = hash;
 }
 
 void test_bksearch() {
