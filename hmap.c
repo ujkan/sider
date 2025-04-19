@@ -53,7 +53,7 @@ bucket_item *bkappend(bucket b, char *key, char *value) {
 bucket_item *bksearch(bucket b, char *key) {
   // db "123"
   for (bucket_item *curr = b; curr != NULL; curr = curr->next) {
-    if (strcmp((curr->p).key, key)) {
+    if (strcmp((curr->p).key, key) == 0) {
       return curr;
     }
   }
