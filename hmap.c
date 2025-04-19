@@ -127,8 +127,8 @@ int hashmap_upsert(hashmap *map, char *key, char *value) {
   return -1;
 }
 
-void hashmap_init(hashmap *map) {
-  map->cap = 2;
+void hashmap_init(hashmap *map, int init_cap) {
+  map->cap = init_cap;
   map->size = 0;
   map->data = malloc((map->cap) * sizeof(map->data));
   map->hashfn = hash;
@@ -209,7 +209,7 @@ void test_bkappend_not_null() {
 void test_upsert_bucket_is_null() {
   printf("test_upsert_bucket_is_null - ");
   hashmap map;
-  hashmap_init(&map);
+  hashmap_init(&map, 6);
   int init_cap = map.cap;
   int init_size = map.size;
   int index = hashmap_upsert(&map, "key", "value");
@@ -237,7 +237,7 @@ void test_upsert_bucket_not_null() {
 
   // setting up
   hashmap map;
-  hashmap_init(&map);
+  hashmap_init(&map, 6);
   map.hashfn = dumb_hashfn;
   // inserting some elements in same bucket
   hashmap_upsert(&map, "key1", "value1");
