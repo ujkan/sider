@@ -116,10 +116,22 @@ int hashmap_upsert(hashmap *map, char *key, char *value) {
 }
 
 void hashmap_init(hashmap *map) {
-  map->cap = 6;
+  map->cap = 2;
   map->size = 0;
   map->data = malloc((map->cap) * sizeof(map->data));
   map->hashfn = hash;
+}
+
+void hashmap_destroy(hashmap *map) {
+  for (int i = 0; i < map->cap; i++) {
+    bucket_item *curr = map->data[i];
+    while (curr != NULL) {
+      bucket_item *tmp = curr;
+      curr = curr->next;
+      free(tmp);
+    }
+  }
+  free(map->data);
 }
 
 void test_bksearch() {
@@ -202,6 +214,7 @@ void test_upsert_bucket_is_null() {
     PRINT("  map size: %d", map.size);
     PRINT("  map cap: %d", map.cap);
   }
+  hashmap_destroy(&map);
 }
 
 int dumb_hashfn(char *key, int size) { return 0; }
@@ -210,19 +223,18 @@ void test_upsert_bucket_not_null() {
   printf("test_upsert_bucket_not_null - ");
   int failed = 0;
 
-
   // setting up
   hashmap map;
   hashmap_init(&map);
   map.hashfn = dumb_hashfn;
   // inserting some elements in same bucket
-  hashmap_upsert(&map, "key1", "value");
+  hashmap_upsert(&map, "key1", "value1");
   DPRINT("  after first upsert");
   DPRINT("    data[0] key=%s", map.data[0]->p.key);
   if (strcmp(map.data[0]->p.key, "key1") != 0) {
     failed = 1;
   }
-  hashmap_upsert(&map, "key2", "value");
+  hashmap_upsert(&map, "key2", "value2");
   DPRINT("  after second upsert");
   DPRINT("    data[0] key=%s", map.data[0]->p.key);
   DPRINT("    data[0] next key=%s", map.data[0]->next->p.key);
@@ -249,7 +261,7 @@ void test_upsert_bucket_not_null() {
     PASS;
   } else {
     FAIL;
-    bucket_item *item = map.data[index];
+    bucket_item *item = map.data[index]->next->next;
     PRINT("  index: %d", index);
     PRINT("  item key: %s", item->p.key);
     PRINT("  item value: %s", item->p.value);
@@ -257,6 +269,7 @@ void test_upsert_bucket_not_null() {
     PRINT("  map size: %d", map.size);
     PRINT("  map cap: %d", map.cap);
   }
+  hashmap_destroy(&map);
 }
 
 int main(void) {
