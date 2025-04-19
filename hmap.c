@@ -84,6 +84,24 @@ bucket_item *bksearch(bucket b, char *key) {
   return NULL;
 }
 
+int bkdelete(bucket b, char *key) {
+  if (b == NULL) {
+    return 0;
+  }
+  bucket_item *prev = NULL;
+  bucket_item *curr = b;
+  while (curr != NULL) {
+    if (strcmp(curr->p.key, key) == 0) {
+      prev->next = curr->next;
+      free(curr);
+      return 1;
+    }
+    prev = curr;
+    curr = curr->next;
+  }
+  return 0;
+}
+
 void hashmap_rehash(hashmap *map) {
   map->cap *= 2;
   bucket *new_data = malloc(map->cap * sizeof(bucket)); // sizeof correct here?
