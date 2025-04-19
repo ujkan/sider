@@ -119,9 +119,10 @@ int hashmap_upsert(hashmap *map, char *key, char *value) {
     return index;
   } else {
     hashmap_rehash(map);
-    hashmap_upsert(map, key,
-                   value); // can i reuse? or is recursion dangerous; should i
-                           // keep a reusable safe upsert to avoid recursion?
+    return hashmap_upsert(
+        map, key,
+        value); // can i reuse? or is recursion dangerous; should i
+                // keep a reusable safe upsert to avoid recursion?
   }
   return -1;
 }
