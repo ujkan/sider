@@ -49,22 +49,6 @@ bucket_item *bkappend(bucket b, char *key, char *value) {
   return b; // return root
 }
 
-bucket bappend(bucket b, pair *p) {
-  bucket_item *nb = malloc(sizeof(bucket_item));
-  nb->p = *p;
-  nb->next = NULL;
-  bucket_item *curr = b;
-  if (curr == NULL) {
-    return nb;
-  }
-
-  while (curr != NULL) {
-    curr = curr->next;
-  }
-  curr->next = nb;
-  return b;
-}
-
 // maybe return ptr to bucket_item to avoid returning structs
 bucket_item *bksearch(bucket b, char *key) {
   // db "123"
@@ -88,7 +72,7 @@ void hashmap_rehash(hashmap *map) {
     while (curr != NULL) {
       char *key = (curr->p).key;
       int index = hash(key, map->cap);
-      new_data[index] = bappend(new_data[index], &(curr->p));
+      new_data[index] = bkappend(new_data[index], key, curr->p.value);
       curr = curr->next;
     }
   }
