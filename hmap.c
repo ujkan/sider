@@ -48,7 +48,7 @@ bucket_item *bkappend(bucket b, char *key, char *value) {
   if (curr == NULL) {
     return new_item; // return new root
   }
-  // go to end and adjust pointers
+  // go to end and adjust (old_last)->next
   for (; curr->next != NULL; curr = curr->next) {
   }
   curr->next = new_item;
