@@ -1,11 +1,8 @@
-#include <stdarg.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include "hmap.h"
 #include "log_utils.h"
-
-
 
 int hash(char *key, int kssize) {
   unsigned int h = 0;
