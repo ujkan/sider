@@ -1,18 +1,13 @@
+#include "utils.h"
 #include <netinet/in.h>
 #include <stdio.h>
-#include <stdlib.h>
-#include <sys/_endian.h>
-#include <sys/_types/_socklen_t.h>
+#include <string.h>
 #include <sys/socket.h>
 #include <sys/types.h>
 #include <unistd.h>
 
 static void do_something(int);
 
-void die(char *message) {
-  fprintf(stderr, "%s\n", message);
-  exit(1);
-}
 int main(void) {
   // args:
   // domain, type (TCP/UDP), protocol
@@ -53,13 +48,12 @@ static void do_something(int connfd) {
   char rbuf[64] = {};
   int n = read(connfd, rbuf, sizeof(rbuf) - 1);
   if (n < 0) {
-    printf("read() error");
+    msg("read() error");
     return;
   }
 
   printf("Client says: %s\n", rbuf);
 
   char wbuf[] = "world";
-  write(connfd, &wbuf, sizeof(wbuf));
-
+  write(connfd, &wbuf, strlen(wbuf));
 }
