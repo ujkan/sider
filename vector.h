@@ -23,9 +23,9 @@
     return &v->data[index];                                                    \
   }                                                                            \
                                                                                \
-  int vector_##TYPE##_get_safe(vector_##TYPE *v, int index, TYPE *value) {     \
+  int vector_##TYPE##_get_safe(vector_##TYPE *v, int index, TYPE **value) {    \
     CHECK_BOUNDS(index, v->size);                                              \
-    value = vector_##TYPE##_get(v, index);                                     \
+    *value = vector_##TYPE##_get(v, index);                                    \
     return 0;                                                                  \
   }                                                                            \
                                                                                \
@@ -83,6 +83,23 @@
       }                                                                        \
     }                                                                          \
     return -1;                                                                 \
+  }                                                                            \
+  void vector_##TYPE##_insert(vector_##TYPE *v, TYPE *value, uint32_t len) {   \
+    while (v->size + len >= v->cap) {                                          \
+      v->cap *= 2;                                                             \
+    }                                                                          \
+    v->data = realloc(v->data, sizeof(TYPE) * v->cap);                         \
+    for (uint32_t i = 0; i < len; i++) {                                       \
+      v->data[v->size++] = value[i];                                           \
+    }                                                                          \
+  }                                                                            \
+  void vector_##TYPE##_remove_first_n(vector_##TYPE *v, uint32_t n) {          \
+    if (n <= v->size) {                                                        \
+      for (int i = n; i < v->size; i++) {                                      \
+        v->data[i - n] = v->data[i];                                           \
+      }                                                                        \
+      v->size -= n;                                                            \
+    }                                                                          \
   }
 
 // typedef struct vector {
