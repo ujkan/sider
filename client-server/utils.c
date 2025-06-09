@@ -13,6 +13,7 @@ void die(char *message) {
 }
 
 void msg(char *message) { fprintf(stderr, "%s\n", message); }
+void msgn(char *message) { fprintf(stderr, "%s", message); }
 
 int32_t read_full(int fd, char *buf, size_t count) {
   ssize_t n_read;
