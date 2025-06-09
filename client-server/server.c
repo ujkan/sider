@@ -60,21 +60,25 @@ static void fd_set_nonblock(int fd) {
   }
   flags |= O_NONBLOCK;
   fcntl(fd, F_SETFL, flags);
+  // TODO: err handling
 }
+
+typedef struct pollfd pollfd_t;
+
+#define COMPARE_CONN(a, b) ((a.fd) == (b.fd) ? 0 : ((a.fd) > (b.fd) ? 1 : -1))
+#define COMPARE_CHAR(a, b) ((a) == (b) ? 0 : ((a) > (b) ? 1 : -1))
+
+DEFINE_VECTOR(char, COMPARE_CHAR);
 
 typedef struct conn {
   int fd;
   bool want_read;
   bool want_write;
 
-  char *wbuf;
-  char *rbuf;
+  vector_char *outgoing;
+  vector_char *incoming;
 
 } conn;
-
-typedef struct pollfd pollfd_t;
-
-#define COMPARE_CONN(a, b) ((a.fd) == (b.fd) ? 0 : ((a.fd) > (b.fd) ? 1 : -1))
 DEFINE_VECTOR(conn, COMPARE_CONN);
 DEFINE_VECTOR(pollfd_t, COMPARE_CONN);
 
@@ -82,12 +86,75 @@ void conn_init(conn *c, int fd) {
   c->fd = fd;
   c->want_read = true;
   c->want_write = false;
-  c->rbuf = malloc(k_max_msg);
-  c->wbuf = malloc(k_max_msg);
+  c->outgoing = malloc(sizeof(vector_char));
+  c->incoming = malloc(sizeof(vector_char));
+  vector_char_init(c->outgoing, k_max_msg);
+  vector_char_init(c->incoming, k_max_msg);
 }
 
-void handle_read(conn *c) { printf("dummy read"); }
-void handle_write(conn *c) { printf("dummy write"); }
+bool try_one_request(conn *c) {
+  printf("tryonereq");
+  int size = c->incoming->size;
+  if (size < 4) {
+    msg("shorter than 4");
+    return false;
+  }
+  uint32_t len;
+  printf("c->incoming->size: %d", c->incoming->size);
+  printf("c->incoming->data: %d", c->incoming->data[1]);
+  memcpy(&len, c->incoming->data, 4);
+  if (size < 4 + len) {
+    msgn("shorter than msg len; msg_len ==  ");
+    fprintf(stderr, "%d; ", len);
+    fprintf(stderr, "size == %d; ", size);
+    return false;
+  }
+  printf("ok!:!:!:!:!\n");
+  // // response == echo
+  vector_char_insert(c->outgoing, c->incoming->data, 4);
+  vector_char_insert(c->outgoing, &c->incoming->data[4], len);
+  vector_char_remove_first_n(c->incoming, 4 + len);
+  return false;
+}
+
+void handle_write(conn *c) {
+  printf("HANDLe WRITE");
+  ssize_t rv = write(c->fd, c->outgoing->data, c->outgoing->size);
+  if (rv < 0) {
+    return;
+  }
+  vector_char_remove_first_n(c->outgoing, rv);
+  if (c->outgoing->size == 0) {
+    c->want_read = true;
+    c->want_write = false;
+  }
+}
+
+// https://www.youtube.com/watch?v=_3LpJ6I-tzc
+void handle_read(conn *c) {
+  printf("handle_read --> --> c fd : %d\n", c->fd);
+  char buf[64 * 1024];
+  ssize_t rv = read(c->fd, buf, sizeof(buf));
+  if (rv <= 0) {
+    msgn("error while reading, fd:");
+    printf("-- --\n");
+    printf("%d\n", c->fd);
+    return;
+  }
+  printf("handle_read read count: %d\n", rv);
+  vector_char_insert(c->incoming, buf, (uint32_t)rv);
+  try_one_request(c);
+
+  printf("c->outgoing->size: %d\n", c->outgoing->size);
+  if (c->outgoing->size > 0) {
+
+    c->want_read = false;
+    c->want_write = true;
+    handle_write(c);
+  }
+  return;
+}
+
 int main(void) {
   // args:
   // domain, type (TCP/UDP), protocol
@@ -123,7 +190,7 @@ int main(void) {
   vector_conn_init(&conns, 10);
   vector_pollfd_t_init(&poll_args, 10);
 
-  while (1) {
+  while (true) {
 
     printf("loopiter\n");
     poll_args.size = 0;
@@ -132,8 +199,8 @@ int main(void) {
     msg("pushed listening fd");
 
     for (int i = 0; i < conns.size; i++) {
-      pollfd_t pfd = {fd, POLLERR, 0};
       conn *c = vector_conn_get(&conns, i);
+      pollfd_t pfd = {c->fd, POLLERR, 0};
       if (c->want_read) {
         msg("wanna read");
         pfd.events |= POLLIN;
@@ -148,6 +215,10 @@ int main(void) {
     // printf("poll_args data pointer: %p\n", poll_args.data);
     int dx = vector_pollfd_t_get(&poll_args, 0)->fd;
     printf("poll_args first fd%d:\n", dx);
+    printf("conns first want_read:%d:\n",
+           vector_conn_get(&conns, 0)->want_read);
+    printf("poll_args second events:%x:\n",
+           vector_pollfd_t_get(&poll_args, 1)->events);
 
     int rv = poll(poll_args.data, (nfds_t)poll_args.size, -1);
     printf("done polling\n");
@@ -167,15 +238,31 @@ int main(void) {
         fd_set_nonblock(connfd);
         conn c;
         conn_init(&c, connfd);
+        printf("post-init, conn c want_read: %d \n", c.want_read);
         vector_conn_push(&conns, c);
+        // printf("post-push, conn c want_read: %d \n", conns.);
       }
     }
 
+    msg("PRE-loop");
+    printf("poll_args size:%d\n", poll_args.size);
     for (int i = 1; i < poll_args.size; i++) {
+      printf("pollargs loop\n");
       pollfd_t *poll_arg = vector_pollfd_t_get(&poll_args, i);
       uint32_t ready = poll_arg->revents;
-      conn *c = vector_conn_get(&conns, poll_arg->fd);
+      conn *c;
+      int err = vector_conn_get_safe(&conns, poll_arg->fd - 4, &c);
+      if (err) {
+        printf("conn size: %d ; arg - 2: %d \n", conns.size, poll_arg->fd - 4);
+        printf("error vector get\n");
+        continue;
+      }
+      printf("c ptr %p\n", c);
+      if (c) {
+        printf("c fd : %d\n", c->fd);
+      }
       if (ready & POLLIN) {
+        printf("POLLIN ready");
         handle_read(c);
       }
       if (ready & POLLOUT) {
