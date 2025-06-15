@@ -115,13 +115,14 @@ bool try_one_request(conn *c) {
   vector_uint8_t_insert(c->outgoing, c->incoming->data, 4);
   vector_uint8_t_insert(c->outgoing, &c->incoming->data[4], len);
   vector_uint8_t_remove_first_n(c->incoming, 4 + len);
-  return false;
+  return false; // TODO: fix ; true
 }
 
 void handle_write(conn *c) {
-//   printf("HANDLe WRITE");
+  printf("----------HANDLE WRITE, fd: %d\n", c->fd);
   ssize_t rv = write(c->fd, c->outgoing->data, c->outgoing->size);
   if (rv < 0) {
+    printf("want_close; handle_write; fd: %d\n", c->fd);
     c->want_close = true;
     return;
   }
