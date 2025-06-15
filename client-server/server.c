@@ -135,21 +135,23 @@ void handle_write(conn *c) {
 
 // https://www.youtube.com/watch?v=_3LpJ6I-tzc
 void handle_read(conn *c) {
-//   printf("handle_read --> --> c fd : %d\n", c->fd);
+  //   printf("handle_read --> --> c fd : %d\n", c->fd);
   uint8_t buf[64 * 1024];
   ssize_t rv = read(c->fd, buf, sizeof(buf));
   if (rv <= 0) {
     // msgn("error while reading, fd:");
 //     printf("-- --\n");
 //     printf("%d\n", c->fd);
+    printf("want_close; handle_read; fd: %d\n", c->fd);
     c->want_close = true;
     return;
   }
-//   printf("handle_read read count: %d\n", rv);
+  //   printf("handle_read read count: %d\n", rv);
   vector_uint8_t_insert(c->incoming, buf, (uint32_t)rv);
   try_one_request(c);
 
-//   printf("c->outgoing->size: %d\n", c->outgoing->size);
+  printf("handle_read: fd: %d, c->outgoing->size: %d\n", c->fd,
+         c->outgoing->size);
   if (c->outgoing->size > 0) {
 
     c->want_read = false;
