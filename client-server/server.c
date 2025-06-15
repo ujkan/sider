@@ -122,6 +122,7 @@ void handle_write(conn *c) {
 //   printf("HANDLe WRITE");
   ssize_t rv = write(c->fd, c->outgoing->data, c->outgoing->size);
   if (rv < 0) {
+    c->want_close = true;
     return;
   }
   vector_uint8_t_remove_first_n(c->outgoing, rv);
@@ -140,6 +141,7 @@ void handle_read(conn *c) {
     // msgn("error while reading, fd:");
 //     printf("-- --\n");
 //     printf("%d\n", c->fd);
+    c->want_close = true;
     return;
   }
 //   printf("handle_read read count: %d\n", rv);
@@ -269,7 +271,7 @@ int main(void) {
       if (ready & POLLOUT) {
         handle_write(c);
       }
-      if (ready & POLLERR) {
+      if ((ready & POLLERR) || c->want_close) {
         close(c->fd);
       }
     }
