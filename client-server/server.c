@@ -250,16 +250,23 @@ int main(void) {
     // msg("PRE-loop");
 //     printf("poll_args size:%d\n", poll_args.size);
     for (int i = 1; i < poll_args.size; i++) {
-//       printf("pollargs loop\n");
+      printf("pollargs loop idx: %d\n", i);
       pollfd_t *poll_arg = vector_pollfd_t_get(&poll_args, i);
       uint32_t ready = poll_arg->revents;
+      conn search = {poll_arg->fd, false, false, NULL, NULL};
       conn *c;
-      int err = vector_conn_get_safe(&conns, poll_arg->fd - 4, &c);
-      if (err) {
-//         printf("conn size: %d ; arg - 2: %d \n", conns.size, poll_arg->fd - 4);
-//         printf("error vector get\n");
-        continue;
+
+      int idx = vector_conn_find_pred(&conns, NULL);
+      if (idx != -1) {
+        vector_conn_get_safe(&conns, idx, &c);
       }
+      // int err = vector_conn_get_safe(&conns, poll_arg->fd - 4, &c);
+      // if (err) {
+      //   //         printf("conn size: %d ; arg - 2: %d \n", conns.size,
+      //   //         poll_arg->fd - 4); printf("error vector get\n");
+      //   printf("ERRRRRRR");
+      //   continue;
+      // }
 //       printf("c ptr %p\n", c);
       if (c) {
 //         printf("c fd : %d\n", c->fd);
