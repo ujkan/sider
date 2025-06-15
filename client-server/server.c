@@ -280,6 +280,12 @@ int main(void) {
       }
       if ((ready & POLLERR) || c->want_close) {
         close(c->fd);
+        int idx = vector_conn_find(&conns, *c);
+        printf("ENTERED\n");
+        if (idx != -1) {
+          printf("REMOVED\n");
+          vector_conn_remove(&conns, idx);
+        }
       }
     }
   }
