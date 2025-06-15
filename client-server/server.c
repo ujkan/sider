@@ -66,6 +66,8 @@ static void fd_set_nonblock(int fd) {
 typedef struct pollfd pollfd_t;
 
 #define COMPARE_CONN(a, b) ((a.fd) == (b.fd) ? 0 : ((a.fd) > (b.fd) ? 1 : -1))
+#define COMPARE_CONNPTR(a, b)                                                  \
+  ((a->fd) == (b->fd) ? 0 : ((a->fd) > (b->fd) ? 1 : -1))
 #define COMPARE_CHAR(a, b) ((a) == (b) ? 0 : ((a) > (b) ? 1 : -1))
 
 DEFINE_VECTOR(uint8_t, COMPARE_CHAR);
@@ -80,6 +82,9 @@ typedef struct conn {
   vector_uint8_t *incoming;
 
 } conn;
+
+typedef conn *connptr;
+DEFINE_VECTOR(connptr, COMPARE_CONNPTR);
 DEFINE_VECTOR(conn, COMPARE_CONN);
 DEFINE_VECTOR(pollfd_t, COMPARE_CONN);
 
