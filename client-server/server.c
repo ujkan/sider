@@ -134,7 +134,7 @@ void handle_write(conn *c) {
 // https://www.youtube.com/watch?v=_3LpJ6I-tzc
 void handle_read(conn *c) {
 //   printf("handle_read --> --> c fd : %d\n", c->fd);
-  char buf[64 * 1024];
+  uint8_t buf[64 * 1024];
   ssize_t rv = read(c->fd, buf, sizeof(buf));
   if (rv <= 0) {
     // msgn("error while reading, fd:");
