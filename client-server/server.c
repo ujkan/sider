@@ -192,47 +192,57 @@ int main(void) {
     die("listen()");
   }
 
-//   printf("FD : %d\n", fd);
+  //   printf("FD : %d\n", fd);
 
   fd_set_nonblock(fd);
 
   vector_conn conns;
-  vector_pollfd_t poll_args;
   vector_conn_init(&conns, 10);
+
+  vector_pollfd_t poll_args;
   vector_pollfd_t_init(&poll_args, 10);
+
+  vector_connptr cptrs;
+  vector_connptr_init(&cptrs, 10);
+  printf("cptrs: %p\n", &cptrs);
+  printf("cptrs.size: %d\n", cptrs.size);
+  printf("cptrs.cap: %d\n", cptrs.cap);
+  cptrs.size = 10;
 
   while (true) {
 
-//     printf("loopiter\n");
+    //     printf("loopiter\n");
     poll_args.size = 0;
     pollfd_t pfd = {fd, POLLIN, 0};
     vector_pollfd_t_push(&poll_args, pfd);
-    msg("pushed listening fd");
+    // msg("pushed listening fd");
 
-    for (int i = 0; i < conns.size; i++) {
-      conn *c = vector_conn_get(&conns, i);
-      pollfd_t pfd = {c->fd, POLLERR, 0};
-      if (c->want_read) {
-        msg("wanna read");
-        pfd.events |= POLLIN;
+    for (int i = 0; i < cptrs.size; i++) {
+      conn *c = *vector_connptr_get(&cptrs, i);
+      if (c) {
+        pollfd_t pfd = {c->fd, POLLERR, 0};
+        if (c->want_read) {
+          // msg("wanna read");
+          pfd.events |= POLLIN;
+        }
+        if (c->want_write) {
+          pfd.events |= POLLOUT;
+        }
+        vector_pollfd_t_push(&poll_args, pfd);
       }
-      if (c->want_write) {
-        pfd.events |= POLLOUT;
-      }
-      vector_pollfd_t_push(&poll_args, pfd);
     }
     // msg("pushed all connfds");
-//     printf("poll_args size:%d\n", poll_args.size);
+    //     printf("poll_args size:%d\n", poll_args.size);
     // printf("poll_args data pointer: %p\n", poll_args.data);
     int dx = vector_pollfd_t_get(&poll_args, 0)->fd;
-//     printf("poll_args first fd%d:\n", dx);
-//     printf("conns first want_read:%d:\n",
-           // vector_conn_get(&conns, 0)->want_read);
-//     printf("poll_args second events:%x:\n",
-           // vector_pollfd_t_get(&poll_args, 1)->events);
+    //     printf("poll_args first fd%d:\n", dx);
+    //     printf("conns first want_read:%d:\n",
+    // vector_conn_get(&conns, 0)->want_read);
+    //     printf("poll_args second events:%x:\n",
+    // vector_pollfd_t_get(&poll_args, 1)->events);
 
     int rv = poll(poll_args.data, (nfds_t)poll_args.size, -1);
-//     printf("done polling\n");
+    //     printf("done polling\n");
     if (rv < 0 && errno == EINTR) {
       continue;
     }
@@ -247,16 +257,16 @@ int main(void) {
       if (connfd != -1) {
         // msg("conn accept");
         fd_set_nonblock(connfd);
-        conn c;
-        conn_init(&c, connfd);
-//         printf("post-init, conn c want_read: %d \n", c.want_read);
-        vector_conn_push(&conns, c);
+        conn *c = malloc(sizeof(conn));
+        conn_init(c, connfd);
+        //         printf("post-init, conn c want_read: %d \n", c.want_read);
+        vector_connptr_set(&cptrs, c->fd, c);
         // printf("post-push, conn c want_read: %d \n", conns.);
       }
     }
 
     // msg("PRE-loop");
-//     printf("poll_args size:%d\n", poll_args.size);
+    //     printf("poll_args size:%d\n", poll_args.size);
     for (int i = 1; i < poll_args.size; i++) {
       printf("pollargs loop idx: %d\n", i);
       pollfd_t *poll_arg = vector_pollfd_t_get(&poll_args, i);
@@ -264,10 +274,7 @@ int main(void) {
       conn search = {poll_arg->fd, false, false, NULL, NULL};
       conn *c;
 
-      int idx = vector_conn_find_pred(&conns, NULL);
-      if (idx != -1) {
-        vector_conn_get_safe(&conns, idx, &c);
-      }
+      c = *vector_connptr_get(&cptrs, poll_arg->fd);
       // int err = vector_conn_get_safe(&conns, poll_arg->fd - 4, &c);
       // if (err) {
       //   //         printf("conn size: %d ; arg - 2: %d \n", conns.size,
@@ -275,12 +282,12 @@ int main(void) {
       //   printf("ERRRRRRR");
       //   continue;
       // }
-//       printf("c ptr %p\n", c);
+      printf("c ptr %p\n", c);
       if (c) {
-//         printf("c fd : %d\n", c->fd);
+        //         printf("c fd : %d\n", c->fd);
       }
       if (ready & POLLIN) {
-//         printf("POLLIN ready");
+        //         printf("POLLIN ready");
         handle_read(c);
       }
       if (ready & POLLOUT) {
@@ -288,13 +295,16 @@ int main(void) {
       }
       if ((ready & POLLERR) || c->want_close) {
         close(c->fd);
-        int idx = vector_conn_find(&conns, *c);
         printf("ENTERED\n");
-        if (idx != -1) {
-          printf("REMOVED\n");
-          vector_conn_remove(&conns, idx);
-        }
+        vector_connptr_set(&cptrs, c->fd, NULL);
+        free(c); // TODO: do i need to free?
       }
     }
+    printf("end of loop; vector_conn:\n");
+    for (int i = 0; i < conns.size; i++) {
+      printf("%d, ", conns.data[i].fd);
+    }
+    printf("\n");
+    printf("connfd: %d\n", fd);
   }
 }
