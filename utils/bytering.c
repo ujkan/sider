@@ -15,12 +15,13 @@
 
 #define SENTINEL UINT32_MAX;
 
-// TODO: maybe return br instead of malloc-ing outside?
-void byte_ring_init(struct ByteRing *br, u32 cap) {
+struct ByteRing *byte_ring_init(u32 cap) {
+  struct ByteRing *br = malloc(sizeof(struct ByteRing));
   br->data = malloc(cap * sizeof(u8));
   br->cap = cap;
   br->start = SENTINEL;
   br->size = 0;
+  return br;
 }
 
 u32 byte_ring_end(struct ByteRing *br) {
