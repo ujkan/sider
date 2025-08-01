@@ -1,13 +1,22 @@
 #include "glib.h"
 #include "glibconfig.h"
 #include <errno.h>
+#include <iterator>
 #include <netinet/in.h>
 #include <stdbool.h>
+#include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <sys/poll.h>
 #include <sys/socket.h>
 #include <unistd.h>
+
+// TODO: Questions Q?
+// - does GByteArray store pointers to bytes or the bytes directly?
+// - what does it mean to free the GByteArray bytes? Does it not suffice
+// to free the entire block of data, since that's the malloc-ed unit? Is it
+// not malloc(len * sizeof(byte))?
+// - same question as above but for GArray
 
 static uint16_t PORT = 8085;
 static uint32_t k_max_len = 4096;
@@ -17,6 +26,7 @@ static void die(const char *msg) {
   fprintf(stderr, "[%d] Fatal error, exiting. Message: %s\n", err, msg);
   abort();
 }
+static void msg(const char *msg) { fprintf(stderr, "%s\n", msg); }
 
 struct Conn {
   int fd;
@@ -28,198 +38,261 @@ struct Conn {
   GByteArray *outgoing;
 };
 
-struct Conn *conn_new(int fd) {
-  struct Conn *c = malloc(sizeof(struct Conn));
-  c->fd = fd;
-  c->want_read = false;
-  c->want_write = false;
-  c->want_close = false;
-  c->incoming = g_byte_array_sized_new(1024);
-  c->outgoing = g_byte_array_sized_new(1024);
-  return c;
+void _g_ptr_array_set(GPtrArray *array, guint index, gpointer data) {
+  if (index >= array->len) {
+    g_ptr_array_set_size(array, index + 4);
+  }
+  g_ptr_array_index(array, index) = data;
 }
 
-void conn_destroy(struct Conn *c) {
-  g_byte_array_free(c->incoming, FALSE);
-  g_byte_array_free(c->outgoing, FALSE);
-  free(c);
+int _g_array_copy_n(void *dest, GArray *src, size_t n) {
+  if (n > src->len) {
+    return -1;
+  }
+  memcpy(dest, src->data, n);
+  return 0;
 }
 
-void _g_ptr_array_insert_expand(GPtrArray *array, gint index_, gpointer data) {
-  if (index_ >= array->len) {
-    g_ptr_array_set_size(array, index_ + 10);
-  }
-  g_ptr_array_insert(array, index_, data);
+void conn_free(gpointer conn) {
+  g_byte_array_free(((struct Conn *)conn)->incoming, TRUE);
+  g_byte_array_free(((struct Conn *)conn)->outgoing, TRUE);
 }
 
-bool try_one_request(struct Conn *c) {
-  if (c->incoming->len < 4) {
+struct Conn *conn_init(int fd) {
+  struct Conn *conn = malloc(sizeof(struct Conn));
+  conn->fd = fd;
+  conn->want_read = false;
+  conn->want_write = false;
+  conn->want_close = false;
+  conn->incoming = g_byte_array_sized_new(1024);
+  conn->outgoing = g_byte_array_sized_new(1024);
+  return conn;
+}
+
+typedef enum {
+  COMMAND_TYPE_READ = 'r',
+  COMMAND_TYPE_SET = 's',
+  COMMAND_TYPE_DELETE = 'd'
+} CommandType;
+
+struct Command {
+  CommandType type;
+  int key;
+  union {
+    GByteArray *value;
+  };
+};
+
+int parse_request(GByteArray *buf, int len, struct Command *cmd) {
+  char c = g_array_index(buf, guint8, 0);
+  if (c != COMMAND_TYPE_READ || c != COMMAND_TYPE_DELETE ||
+      c != COMMAND_TYPE_SET) {
+    return -1;
+  }
+  cmd->type = c;
+  return 0;
+}
+
+bool try_one_request(struct Conn *conn) {
+  if (conn->incoming->len < 4) {
+    msg("not enough data in incoming buffer");
     return false;
   }
-  int len;
-  memcpy(&len, c->incoming->data, 4);
-  if (len > k_max_len) {
-    printf("handle_read / len=%d exceeding k_max_len=%d\n", len, k_max_len);
+  uint32_t msg_len;
+  memcpy(&msg_len, conn->incoming->data, 4);
+  msg_len = ntohl(msg_len);
+  if (msg_len > k_max_len) {
+    msg("max len exceeded");
+    g_byte_array_remove_range(conn->incoming, 0, 4);
+    conn->want_close = true;
     return false;
   }
-  if (len + 4 > c->incoming->len) {
-    printf("handle_read / len=%d exceeding available data in buffer =%d\n", len,
-           c->incoming->len - 4);
+  if (msg_len + 4 > conn->incoming->len) {
+    msg("not enough data in incoming buffer");
     return false;
   }
-  guint8 msg[len + 1];
-  memcpy(msg, c->incoming->data + 4, len);
 
-  printf("msg: %s\n", msg);
+  parse_request(conn->incoming, len, &command);
 
-  g_byte_array_append(c->outgoing, (const guint8 *)&len, 4);
-  g_byte_array_append(c->outgoing, msg, len);
-  printf("msg2: %s\n", c->outgoing->data);
+  // response part
+  char reply[4 + 5 + msg_len];
+  char prefix[5] = "echo:";
+  uint32_t len = htonl(sizeof(reply) - 4);
+  g_byte_array_append(conn->outgoing, (const guint8 *)&len, 4);
+  g_byte_array_append(conn->outgoing, (const guint8 *)prefix, 5);
+  g_byte_array_append(conn->outgoing,
+                      &((const guint8 *)conn->incoming->data)[4], msg_len);
 
-  g_byte_array_remove_range(c->incoming, 0, len + 4);
+  // clean up incoming buffer
+  g_byte_array_remove_range(conn->incoming, 0, 4 + msg_len);
 
   return true;
-  /*if (rv == len) { // or do we check c->incoming->len == len+4?*/
-  /*  // ready to write*/
-  /*  c->want_read = false;*/
-  /*  c->want_write = true;*/
-  /*}*/
 }
 
-void handle_read(struct Conn *c) {
-  uint8_t buf[64 * 1024];
-  ssize_t rv = read(c->fd, buf, sizeof(buf));
+void handle_read(struct Conn *conn) {
+  /*printf("handle_Read\n");*/
+  char rbuf[64 * 1024];
+  int rv = read(conn->fd, rbuf, sizeof(rbuf));
   if (rv <= 0) {
-    c->want_close = true;
+    // error
+    conn->want_close = true;
     return;
   }
-
-  g_byte_array_append(c->incoming, buf, (guint)rv);
-
-  bool did_respond = try_one_request(c);
-  if (did_respond) {
-    c->want_read = false;
-    c->want_write = true;
-  } else {
-    printf("handle_read / did_response=false / c->want_close=true for fd=%d\n",
-           c->fd);
-    c->want_close = true;
+  g_byte_array_append(conn->incoming, (const guint8 *)rbuf, rv);
+  while (try_one_request(conn)) {
+  }
+  if (conn->outgoing->len > 0) {
+    conn->want_read = false;
+    conn->want_write = true;
   }
 }
 
-void handle_write(struct Conn *c) {
-  ssize_t rv = write(c->fd, c->outgoing->data, c->outgoing->len);
-  if (rv < 0) {
-    c->want_close = true;
+void handle_write(struct Conn *conn) {
+  int rv = write(conn->fd, conn->outgoing->data, conn->outgoing->len);
+  printf("replied to fd=%d\n", conn->fd);
+  if (rv <= 0) {
+    //
+    conn->want_close = true;
     return;
   }
 
-  printf("written to fd %d\n", c->fd);
-  g_byte_array_remove_range(c->outgoing, 0, rv);
-  if (c->outgoing->len == 0) {
-    c->want_read = true;
-    c->want_write = false;
+  g_byte_array_remove_range(conn->outgoing, 0, rv);
+  if (conn->outgoing->len == 0) {
+    conn->want_read = true;
+    conn->want_write = false;
   }
 }
 
 int main(void) {
-
-  // create IPv4 socket (general)
+  // socket()
   int fd = socket(AF_INET, SOCK_STREAM, 0);
+  if (fd < 0) {
+    die("socket()");
+  }
+  int val = 1;
+  setsockopt(fd, SOL_SOCKET, SO_REUSEADDR, &val, sizeof(val));
 
-  // bind to address
+  // bind()
   struct sockaddr_in addr = {};
   addr.sin_addr.s_addr = htonl(INADDR_ANY);
   addr.sin_port = htons(PORT);
   addr.sin_family = AF_INET;
-  int rv = bind(fd, (struct sockaddr *)&addr, sizeof(addr));
+
+  int rv = bind(fd, (const struct sockaddr *)&addr, sizeof(addr));
   if (rv < 0) {
     die("bind()");
   }
-  // create listening socket
+
+  // listen()
   rv = listen(fd, SOMAXCONN);
   if (rv < 0) {
     die("listen()");
   }
 
-  // conns contains pointers to struct Conn
-  GPtrArray *conns = g_ptr_array_sized_new(10);
+  GPtrArray *conns = g_ptr_array_new_full(10, conn_free);
+  g_ptr_array_set_size(conns, 10);
+  GArray *pollfds = g_array_sized_new(FALSE, TRUE, sizeof(struct pollfd), 10);
+  struct pollfd l_pollfd = {fd, POLLIN, 0};
+  g_array_append_val(pollfds, l_pollfd);
 
-  // poll_args is an array of 'struct pollfd'
-  GArray *poll_args =
-      g_array_sized_new(FALSE, FALSE, sizeof(struct pollfd), 10);
+  for (;;) {
+    // TODO: 2 things need to be fixed
+    // 1. we cannot keep appending to pollfds in a loop even if no new
+    // connections incoming
+    // 2. as connections may change whether they "want_read", "want_write",
+    // and "want_close" in each event loop iteration, we need to edit the
+    // "events" even for those connections
 
-  // start event loop
-  while (1) {
-    /*printf("Starting loop\n");*/
+    // NOTE: conns is the primary state object. it both represents
+    // the actual comms (via the in/out buffers) and the read/write/error
+    // state of the connection
 
-    poll_args->len = 0;
-    // add the listening socket to the poll list
-    // for the listening socket, a POLLIN event is an "accept" request
-    struct pollfd pollfd = {fd, POLLIN, 0};
-    g_array_append_val(poll_args, pollfd);
+    // choose an "inefficient" approach
+    // clear the pollfds array each time and just rebuild it
+    // NOTE: set_size runs in O(n) (sets all to 0) but does not do any memmove
+    // TODO: alternatively keep a map but would have to find a map where
+    // the "map.getValues()" struct is a simple pointer to struct pollfd and not
+    // some other type, since that's what "poll()" admits
+    g_array_set_size(pollfds, 1);
 
-    // create poll_args of pollfd with the correct `events`
+    // prepare connections for polling
     for (guint i = 0; i < conns->len; i++) {
-      /*printf("In conn loop fd=%d\n", i);*/
-      struct Conn *c = g_ptr_array_index(conns, i);
-      if (c) {
-        /*printf("In conn loop fd=%d -- IF TRUE\n", i);*/
-        struct pollfd pollfd = {};
-        pollfd.fd = c->fd;
-        pollfd.events |= (c->want_read ? POLLIN : 0);
-        pollfd.events |= (c->want_write ? POLLOUT : 0);
-        pollfd.events |= (c->want_close ? POLLERR : 0);
-        printf("pollfd fd=%d events=%d\n", pollfd.fd, pollfd.events);
-        /*printf("events for fd=%d : %d\n", pollfd.fd, pollfd.events);*/
-        g_array_append_val(poll_args, pollfd);
+      struct Conn *conn = g_ptr_array_index(conns, i);
+      if (conn) {
+        struct pollfd p = {};
+        p.fd = conn->fd;
+        p.events |= (conn->want_read ? POLLIN : 0);
+        p.events |= (conn->want_write ? POLLOUT : 0);
+        p.events |= (conn->want_close ? POLLERR : 0);
+        // NOTE: append_val is a macro for append_vals with &p (ptr to p)
+        // yet this doesn't mean that the *pointer* value is stored, rather
+        // GLib memcpy's the values of the struct at that address, and it knows
+        // how much to read because of element_size during initialization
+        g_array_append_val(pollfds, p);
       }
     }
 
-    // poll the poll_args
-    /*printf("poll_args len=%d\n", poll_args->len);*/
-    int rv = poll((struct pollfd *)poll_args->data, poll_args->len, -1);
+    // call poll & respond to its events
+    poll((struct pollfd *)pollfds->data, pollfds->len, -1);
+    // 2 types of fds being polled:
+    // - listening socket
+    // - conn sockets
 
-    // register sockets/connections ("accept")
-    // only when ready to read
-    struct pollfd lsocket_pollfd = g_array_index(poll_args, struct pollfd, 0);
-    /*printf("lsocket events: %x\n", lsocket_pollfd.events);*/
-    /*printf("lsocket fd: %d\n", lsocket_pollfd.fd);*/
-    /*printf("lsocket revents: %x\n", lsocket_pollfd.revents);*/
-    if (lsocket_pollfd.revents) {
-      /*printf("lsocket revent POLLIN\n");*/
-      struct sockaddr peer_addr = {};
-      socklen_t peer_addr_size = sizeof(peer_addr);
-      int connfd = accept(fd, &peer_addr, &peer_addr_size);
-
+    // if listening socket revents = READ/POLLIN
+    // means a socket is trying to connect (aka "can accept")
+    // ==> add connection to conns list
+    l_pollfd = g_array_index(pollfds, struct pollfd, 0);
+    if (l_pollfd.revents) {
+      struct sockaddr_in client_addr = {};
+      socklen_t client_addrlen = 0;
+      int connfd = accept(fd, (struct sockaddr *)&client_addr, &client_addrlen);
       if (connfd < 0) {
-        // handle error
+        msg("accept failed");
       } else {
-        struct Conn *c = conn_new(connfd);
-        c->want_read = true;
-        _g_ptr_array_insert_expand(conns, connfd, c);
+        msg("accepted connection");
       }
+      printf("at fd:%d / address: %d.%d.%d.%d:%u\n",           //
+             connfd,                                           //
+             (ntohl(addr.sin_addr.s_addr & 0xff000000)) >> 24, //
+             (ntohl(addr.sin_addr.s_addr & 0x00ff0000)) >> 16, //
+             (ntohl(addr.sin_addr.s_addr & 0x0000ff00)) >> 8,  //
+             (ntohl(addr.sin_addr.s_addr & 0x000000ff)),       //
+             ntohs(addr.sin_port));
+      struct Conn *conn = conn_init(connfd);
+      conn->want_read = true;
+
+      // NOTE: must use a custom "set" method because
+      // the insert method shifts everything after index to the right, so what
+      // was previously at index 5 becomes index 6 if we insert at index=4. this
+      // is buggy
+      _g_ptr_array_set(conns, conn->fd, conn);
     }
 
-    // act on the different `revents` of client socket fds after the poll
-    for (guint i = 1; i < poll_args->len; i++) {
-      struct pollfd curr = g_array_index(poll_args, struct pollfd, i);
-      struct Conn *conn = g_ptr_array_index(conns, curr.fd);
-      printf("revents fd=%d r=%d\n", curr.fd, curr.revents);
-      if (curr.revents & POLLIN) {
+    // if conn socket revents
+    // then handle depending on POLLIN, POLLOUT, POLLERR
+    for (guint i = 1; i < pollfds->len; i++) {
+      struct pollfd pollfd = g_array_index(pollfds, struct pollfd, i);
+      short ready = pollfd.revents;
+
+      // NOTE: we index the conns array with the fd
+      struct Conn *conn = g_ptr_array_index(
+          conns, pollfd.fd); // value at arr[fd], a ptr to Conn
+
+      if (ready & POLLIN) {
         handle_read(conn);
       }
-      if (curr.revents & POLLOUT) {
+      if (ready & POLLOUT) {
         handle_write(conn);
       }
-      if ((curr.revents & POLLERR) || conn->want_close) {
-        close(conn->fd);
+      if ((ready & POLLERR) || conn->want_close) {
+        int connfd = conn->fd;
+        close(connfd);
+        conn_free(conn);
         free(conn);
-        g_ptr_array_index(conns, curr.fd) = NULL;
-        printf("closed\n");
-        // close
+        _g_ptr_array_set(conns, connfd, NULL);
       }
     }
-    //
   }
+
+  return 0;
 }
