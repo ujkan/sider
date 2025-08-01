@@ -1,7 +1,7 @@
+#include "bytering.h"
 #include "glib.h"
 #include "glibconfig.h"
 #include <errno.h>
-#include <iterator>
 #include <netinet/in.h>
 #include <stdbool.h>
 #include <stdint.h>
@@ -34,8 +34,8 @@ struct Conn {
   bool want_write;
   bool want_close;
 
-  GByteArray *incoming;
-  GByteArray *outgoing;
+  struct ByteRing *incoming;
+  struct ByteRing *outgoing;
 };
 
 void _g_ptr_array_set(GPtrArray *array, guint index, gpointer data) {
@@ -54,8 +54,10 @@ int _g_array_copy_n(void *dest, GArray *src, size_t n) {
 }
 
 void conn_free(gpointer conn) {
-  g_byte_array_free(((struct Conn *)conn)->incoming, TRUE);
-  g_byte_array_free(((struct Conn *)conn)->outgoing, TRUE);
+  free(((struct Conn *)conn)->incoming->data);
+  free(((struct Conn *)conn)->incoming);
+  free(((struct Conn *)conn)->outgoing->data);
+  free(((struct Conn *)conn)->outgoing);
 }
 
 struct Conn *conn_init(int fd) {
@@ -64,8 +66,8 @@ struct Conn *conn_init(int fd) {
   conn->want_read = false;
   conn->want_write = false;
   conn->want_close = false;
-  conn->incoming = g_byte_array_sized_new(1024);
-  conn->outgoing = g_byte_array_sized_new(1024);
+  conn->incoming = byte_ring_init(1024);
+  conn->outgoing = byte_ring_init(1024);
   return conn;
 }
 
@@ -94,7 +96,7 @@ int parse_request(GByteArray *buf, int len, struct Command *cmd) {
 }
 
 bool try_one_request(struct Conn *conn) {
-  if (conn->incoming->len < 4) {
+  if (conn->incoming->size < 4) {
     msg("not enough data in incoming buffer");
     return false;
   }
@@ -103,28 +105,31 @@ bool try_one_request(struct Conn *conn) {
   msg_len = ntohl(msg_len);
   if (msg_len > k_max_len) {
     msg("max len exceeded");
-    g_byte_array_remove_range(conn->incoming, 0, 4);
+    byte_ring_pop_first_n(conn->incoming, 4);
     conn->want_close = true;
     return false;
   }
-  if (msg_len + 4 > conn->incoming->len) {
+  if (msg_len + 4 > conn->incoming->size) {
     msg("not enough data in incoming buffer");
     return false;
   }
 
-  parse_request(conn->incoming, len, &command);
+  /*parse_request(conn->incoming, len, &command);*/
 
   // response part
-  char reply[4 + 5 + msg_len];
+  u8 reply[msg_len];
   char prefix[5] = "echo:";
-  uint32_t len = htonl(sizeof(reply) - 4);
-  g_byte_array_append(conn->outgoing, (const guint8 *)&len, 4);
-  g_byte_array_append(conn->outgoing, (const guint8 *)prefix, 5);
-  g_byte_array_append(conn->outgoing,
-                      &((const guint8 *)conn->incoming->data)[4], msg_len);
+  uint32_t len = htonl(sizeof(reply) + 5);
+  byte_ring_append_n(conn->outgoing, (const guint8 *)&len, 4);
+  byte_ring_append_n(conn->outgoing, (const guint8 *)prefix, 5);
+  printf("msg_len=%d\n", msg_len);
+  byte_ring_copy_n(conn->incoming, reply, 4, msg_len);
+  byte_ring_append_n(conn->outgoing, reply, msg_len);
 
   // clean up incoming buffer
-  g_byte_array_remove_range(conn->incoming, 0, 4 + msg_len);
+  byte_ring_debug_print(conn->incoming);
+  byte_ring_pop_first_n(conn->incoming, 4 + msg_len);
+  byte_ring_debug_print(conn->incoming);
 
   return true;
 }
@@ -138,17 +143,17 @@ void handle_read(struct Conn *conn) {
     conn->want_close = true;
     return;
   }
-  g_byte_array_append(conn->incoming, (const guint8 *)rbuf, rv);
+  byte_ring_append_n(conn->incoming, (const guint8 *)rbuf, rv);
   while (try_one_request(conn)) {
   }
-  if (conn->outgoing->len > 0) {
+  if (conn->outgoing->size > 0) {
     conn->want_read = false;
     conn->want_write = true;
   }
 }
 
 void handle_write(struct Conn *conn) {
-  int rv = write(conn->fd, conn->outgoing->data, conn->outgoing->len);
+  int rv = write(conn->fd, conn->outgoing->data, conn->outgoing->size);
   printf("replied to fd=%d\n", conn->fd);
   if (rv <= 0) {
     //
@@ -156,8 +161,8 @@ void handle_write(struct Conn *conn) {
     return;
   }
 
-  g_byte_array_remove_range(conn->outgoing, 0, rv);
-  if (conn->outgoing->len == 0) {
+  byte_ring_pop_first_n(conn->outgoing, rv);
+  if (conn->outgoing->size == 0) {
     conn->want_read = true;
     conn->want_write = false;
   }
