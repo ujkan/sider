@@ -63,7 +63,8 @@ static int32_t send_req(int fd, const uint8_t *text, size_t len) {
     }
 
     std::vector<uint8_t> wbuf;
-    buf_append(wbuf, (const uint8_t *)&len, 4);
+    size_t len_no = htonl(len);
+    buf_append(wbuf, (const uint8_t *)&len_no, 4);
     buf_append(wbuf, text, len);
     return write_all(fd, wbuf.data(), wbuf.size());
 }
@@ -85,6 +86,7 @@ static int32_t read_res(int fd) {
 
     uint32_t len = 0;
     memcpy(&len, rbuf.data(), 4);  // assume little endian
+    len = ntohl(len);
     if (len > k_max_msg) {
         msg("too long");
         return -1;
