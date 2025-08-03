@@ -20,6 +20,8 @@
 
 static uint16_t PORT = 8085;
 static uint32_t k_max_len = 4096;
+static uint32_t k_min_args = 2;
+static uint32_t k_max_args = 3;
 
 static void die(const char *msg) {
   int err = errno;
@@ -85,14 +87,117 @@ struct Command {
   };
 };
 
-int parse_request(GByteArray *buf, int len, struct Command *cmd) {
-  char c = g_array_index(buf, guint8, 0);
-  if (c != COMMAND_TYPE_READ || c != COMMAND_TYPE_DELETE ||
-      c != COMMAND_TYPE_SET) {
+bool read_u32(const u8 *start, const u8 *end, u32 *value) {
+  if (start + 4 > end) {
+    return false;
+  }
+  memcpy(value, start, 4);
+  return true;
+}
+
+bool read_str(const u8 *start, const u8 *end, u32 msg_len, u8 *buf) {
+  if (start + msg_len > end) {
+    return false;
+  }
+  memcpy(buf, start, msg_len);
+  return true;
+}
+
+// nstr len1 msg1 len2 msg2 len3 msg3 ...
+// 4B   4B   ...  4B   ...  4B   ...
+// e.g.
+// nstr       len1       m1  len2        m2
+// 0x00000002 0x00000001 "r" 0x00000005 "hello"
+// the request is: get "hello"
+
+struct LString {
+  u32 len;
+  char *str;
+};
+
+struct Response {
+  u32 status;
+  struct ByteRing *data;
+};
+
+int32_t parse_request(struct ByteRing *buf, GPtrArray *out) {
+  u32 nstr;
+  u8 *curr = buf->data;
+  const u8 *end = buf->data + buf->size;
+  bool rv = read_u32(buf->data, end, &nstr);
+  if (!rv) {
     return -1;
   }
-  cmd->type = c;
+  if (nstr < k_min_args || nstr > k_max_args) {
+    return -1;
+  }
+
+  curr += 4;
+  for (u32 i = 0; i < nstr; i++) {
+    struct LString *s = malloc(sizeof(struct LString));
+
+    bool rv = read_u32(curr, end, &s->len);
+    if (!rv) {
+      return -1;
+    }
+    curr += 4;
+
+    s->str = malloc(s->len);
+
+    rv = read_str(curr, end, s->len, (u8 *)s->str);
+    if (!rv) {
+      return -1;
+    }
+    curr += s->len;
+    g_ptr_array_add(out, s);
+  }
+  if (curr != end) {
+    return -1;
+  }
   return 0;
+}
+
+struct HashMap {};
+static struct HashMap data;
+
+u8 *hmap_get(struct HashMap *data, char *key);
+void hmap_set(struct HashMap *data, char *key, char *value);
+bool hmap_del(struct HashMap *data, char *key);
+
+void do_request(GPtrArray *cmd, struct Response *out) {
+  if (cmd->len == 2) {
+    char *command = ((struct LString *)g_ptr_array_index(cmd, 0))->str;
+    u8 *key = ((struct LString *)g_ptr_array_index(cmd, 1))->str;
+    if (strcmp(command, "get") == 0) {
+      u32 key_len = ((struct LString *)g_ptr_array_index(cmd, 1))->len;
+      u8 *value = hmap_get(&data, key);
+      if (value) {
+        out->status = 0;
+        byte_ring_append_n(out->data, value, key_len);
+      } else {
+        out->status = 1; // not found
+      }
+      // handle get
+    } else if (strcmp(command, "del")) {
+      bool rv = hmap_del(&data, key);
+      if (rv) {
+        out->status = 0; // deleted!
+      } else {
+        out->status = 1; // not found
+      }
+    }
+  } else if (cmd->len == 3) {
+    char *command = ((struct LString *)g_ptr_array_index(cmd, 0))->str;
+    u8 *key = ((struct LString *)g_ptr_array_index(cmd, 1))->str;
+    u8 *value = ((struct LString *)g_ptr_array_index(cmd, 2))->str;
+
+    if (strcmp(command, "set") == 0) {
+      hmap_set(&data, key, value);
+      out->status = 0;
+    }
+  } else {
+    out->status = 2; // unrecognized command
+  }
 }
 
 bool try_one_request(struct Conn *conn) {
@@ -114,17 +219,22 @@ bool try_one_request(struct Conn *conn) {
     return false;
   }
 
-  /*parse_request(conn->incoming, len, &command);*/
+  GPtrArray *command = g_ptr_array_sized_new(4);
+  parse_request(conn->incoming, command);
+  struct Response resp = {};
+  resp.data = conn->outgoing;
+  do_request(command, &resp);
 
   // response part
-  u8 reply[msg_len];
-  char prefix[5] = "echo:";
-  uint32_t len = htonl(sizeof(reply) + 5);
-  byte_ring_append_n(conn->outgoing, (const guint8 *)&len, 4);
-  byte_ring_append_n(conn->outgoing, (const guint8 *)prefix, 5);
-  printf("msg_len=%d\n", msg_len);
-  byte_ring_copy_n(conn->incoming, reply, 4, msg_len);
-  byte_ring_append_n(conn->outgoing, reply, msg_len);
+  /*u8 reply[msg_len];*/
+  /*char prefix[5] = "echo:";*/
+  /*uint32_t len = htonl(sizeof(reply) + 5);*/
+  /*byte_ring_append_n(conn->outgoing, (const guint8 *)&len, 4);*/
+  /*byte_ring_append_n(conn->outgoing, (const guint8 *)prefix, 5);*/
+  /*printf("msg_len=%d\n", msg_len);*/
+  // TODO: implement a copy function between two rings
+  /*byte_ring_copy_n(conn->incoming, reply, 4, msg_len);*/
+  /*byte_ring_append_n(conn->outgoing, reply, msg_len);*/
 
   // clean up incoming buffer
   byte_ring_debug_print(conn->incoming);
