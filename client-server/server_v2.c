@@ -1,6 +1,7 @@
 #include "bytering.h"
 #include "glib.h"
 #include "glibconfig.h"
+#include "hmap.h"
 #include <errno.h>
 #include <netinet/in.h>
 #include <stdbool.h>
@@ -117,14 +118,15 @@ struct LString {
 
 struct Response {
   u32 status;
-  struct ByteRing *data;
+  u8 *data;
 };
 
-int32_t parse_request(struct ByteRing *buf, GPtrArray *out) {
+int32_t parse_request(u8 *buf, u32 len, GPtrArray *out) {
   u32 nstr;
-  u8 *curr = buf->data;
-  const u8 *end = buf->data + buf->size;
-  bool rv = read_u32(buf->data, end, &nstr);
+  u8 *curr = buf;
+  const u8 *end = buf + len;
+  bool rv = read_u32(buf, end, &nstr);
+  nstr = ntohl(nstr);
   if (!rv) {
     return -1;
   }
@@ -137,6 +139,7 @@ int32_t parse_request(struct ByteRing *buf, GPtrArray *out) {
     struct LString *s = malloc(sizeof(struct LString));
 
     bool rv = read_u32(curr, end, &s->len);
+    s->len = ntohl(s->len);
     if (!rv) {
       return -1;
     }
@@ -157,30 +160,29 @@ int32_t parse_request(struct ByteRing *buf, GPtrArray *out) {
   return 0;
 }
 
-struct HashMap {};
-static struct HashMap data;
-
-u8 *hmap_get(struct HashMap *data, char *key);
-void hmap_set(struct HashMap *data, char *key, char *value);
-bool hmap_del(struct HashMap *data, char *key);
+static struct hashmap *data;
 
 void do_request(GPtrArray *cmd, struct Response *out) {
   if (cmd->len == 2) {
     char *command = ((struct LString *)g_ptr_array_index(cmd, 0))->str;
+    printf("COMMAND ------------------ %s\n", command);
     u8 *key = ((struct LString *)g_ptr_array_index(cmd, 1))->str;
     if (strcmp(command, "get") == 0) {
       u32 key_len = ((struct LString *)g_ptr_array_index(cmd, 1))->len;
-      u8 *value = hmap_get(&data, key);
+      u8 *value = hashmap_get(data, key);
       if (value) {
         out->status = 0;
-        byte_ring_append_n(out->data, value, key_len);
+        memcpy(out->data, value,
+               strlen(value)); // TODO: fix, should be val_len, but unknown len
+        /*byte_ring_append_n(out->data, value, key_len);*/
       } else {
         out->status = 1; // not found
       }
       // handle get
-    } else if (strcmp(command, "del")) {
-      bool rv = hmap_del(&data, key);
-      if (rv) {
+    } else if (strcmp(command, "del") == 0) {
+      int rv = hashmap_delete(data, key);
+      printf("DELETE\n");
+      if (rv == 1) {
         out->status = 0; // deleted!
       } else {
         out->status = 1; // not found
@@ -192,7 +194,7 @@ void do_request(GPtrArray *cmd, struct Response *out) {
     u8 *value = ((struct LString *)g_ptr_array_index(cmd, 2))->str;
 
     if (strcmp(command, "set") == 0) {
-      hmap_set(&data, key, value);
+      hashmap_upsert(data, key, value);
       out->status = 0;
     }
   } else {
@@ -220,10 +222,16 @@ bool try_one_request(struct Conn *conn) {
   }
 
   GPtrArray *command = g_ptr_array_sized_new(4);
-  parse_request(conn->incoming, command);
+  u8 buf[conn->incoming->size - 4];
+  byte_ring_copy_n(conn->incoming, buf, 4, conn->incoming->size - 4);
+  parse_request(buf, sizeof(buf), command);
   struct Response resp = {};
-  resp.data = conn->outgoing;
+  resp.data = malloc(128);
   do_request(command, &resp);
+  u32 resp_len = htonl(sizeof(resp.status) + 128);
+  byte_ring_append_n(conn->outgoing, (const u8 *)&resp_len, 4);
+  byte_ring_append_n(conn->outgoing, (const u8 *)&resp.status, 4);
+  byte_ring_append_n(conn->outgoing, (const u8 *)resp.data, 128);
 
   // response part
   /*u8 reply[msg_len];*/
@@ -309,6 +317,9 @@ int main(void) {
   GArray *pollfds = g_array_sized_new(FALSE, TRUE, sizeof(struct pollfd), 10);
   struct pollfd l_pollfd = {fd, POLLIN, 0};
   g_array_append_val(pollfds, l_pollfd);
+
+  data = malloc(sizeof(hashmap));
+  hashmap_init(data, 128);
 
   for (;;) {
     // TODO: 2 things need to be fixed
