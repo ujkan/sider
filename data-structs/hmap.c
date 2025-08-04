@@ -55,16 +55,18 @@ bucket_item *bksearch(bucket b, char *key) {
   return NULL;
 }
 
-int bkdelete(bucket b, char *key) {
-  if (b == NULL) {
+int bkdelete(bucket *b, char *key) {
+  if (b == NULL || *b == NULL) {
     return 0;
   }
   bucket_item *prev = NULL;
-  bucket_item *curr = b;
+  bucket_item *curr = *b;
   while (curr != NULL) {
     if (strcmp(curr->p.key, key) == 0) {
       if (prev) {
-          prev->next = curr->next;
+        prev->next = curr->next;
+      } else {
+        *b = curr->next;
       }
       free(curr);
       return 1;
@@ -159,11 +161,7 @@ char *hashmap_get(hashmap *map, char *key) {
 
 int hashmap_delete(hashmap *map, char *key) {
   int index = (map->hashfn)(key, map->cap);
-  bucket bkt = map->data[index];
-  int ret = bkdelete(bkt, key);
-  if (ret == 1) {
-      map->data[index] = NULL;
-  }
+  int ret = bkdelete(&map->data[index], key);
   return ret;
 }
 

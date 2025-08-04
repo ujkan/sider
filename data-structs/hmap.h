@@ -24,7 +24,7 @@ int hash(char *key, int kssize);
 // bucket fns
 bucket_item *bkappend(bucket b, char *key, char *value);
 bucket_item *bksearch(bucket b, char *key);
-int bkdelete(bucket b, char *key);
+int bkdelete(bucket *b, char *key);
 
 // hashmap fns
 void hashmap_init(hashmap *map, int init_cap);
