@@ -115,6 +115,10 @@ struct LString {
   u32 len;
   char *str;
 };
+void lstring_free(gpointer data) {
+  free(((struct LString *)data)->str);
+  free(data);
+}
 
 struct Response {
   u32 status;
@@ -232,6 +236,8 @@ bool try_one_request(struct Conn *conn) {
   byte_ring_append_n(conn->outgoing, (const u8 *)&resp_len, 4);
   byte_ring_append_n(conn->outgoing, (const u8 *)&resp.status, 4);
   byte_ring_append_n(conn->outgoing, (const u8 *)resp.data, 128);
+  free(resp.data);
+  /*g_ptr_array_free(command, TRUE);*/
 
   // response part
   /*u8 reply[msg_len];*/
