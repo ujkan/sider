@@ -159,11 +159,20 @@ int32_t parse_request(u8 *buf, u32 len, GPtrArray *out) {
 static struct hashmap *data;
 
 void do_request(GPtrArray *cmd, struct Response *out) {
+  out->data[0] = '\0';
+  out->status = 1;
+  if (cmd->len == 1) {
+    char *command = ((struct LString *)g_ptr_array_index(cmd, 0))->str;
+    if (strncmp(command, "print", 5) == 0) {
+      hashmap_print_keys_compact(data);
+    }
+    return;
+  }
   if (cmd->len == 2) {
     char *command = ((struct LString *)g_ptr_array_index(cmd, 0))->str;
     printf("COMMAND ------------------ %s\n", command);
     u8 *key = ((struct LString *)g_ptr_array_index(cmd, 1))->str;
-    if (strcmp(command, "get") == 0) {
+    if (strncmp(command, "get", 3) == 0) {
       u32 key_len = ((struct LString *)g_ptr_array_index(cmd, 1))->len;
       u8 *value = hashmap_get(data, key);
       if (value) {
@@ -175,7 +184,7 @@ void do_request(GPtrArray *cmd, struct Response *out) {
         out->status = 1; // not found
       }
       // handle get
-    } else if (strcmp(command, "del") == 0) {
+    } else if (strncmp(command, "del", 3) == 0) {
       int rv = hashmap_delete(data, key);
       printf("DELETE\n");
       if (rv == 1) {
@@ -189,7 +198,8 @@ void do_request(GPtrArray *cmd, struct Response *out) {
     u8 *key = ((struct LString *)g_ptr_array_index(cmd, 1))->str;
     u8 *value = ((struct LString *)g_ptr_array_index(cmd, 2))->str;
 
-    if (strcmp(command, "set") == 0) {
+    if (strncmp(command, "set", 3) == 0) {
+      printf("setting; key=%s ; value=%s \n", key, value);
       hashmap_upsert(data, key, value);
       out->status = 0;
     }
