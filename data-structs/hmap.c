@@ -68,6 +68,8 @@ int bkdelete(bucket *b, char *key) {
       } else {
         *b = curr->next;
       }
+      free(curr->p.key);
+      free(curr->p.value);
       free(curr);
       return 1;
     }
