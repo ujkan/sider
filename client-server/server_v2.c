@@ -80,14 +80,6 @@ typedef enum {
   COMMAND_TYPE_DELETE = 'd'
 } CommandType;
 
-struct Command {
-  CommandType type;
-  int key;
-  union {
-    GByteArray *value;
-  };
-};
-
 bool read_u32(const u8 *start, const u8 *end, u32 *value) {
   if (start + 4 > end) {
     return false;
