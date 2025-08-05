@@ -21,7 +21,7 @@
 
 static uint16_t PORT = 8085;
 static uint32_t k_max_len = 4096;
-static uint32_t k_min_args = 2;
+static uint32_t k_min_args = 1;
 static uint32_t k_max_args = 3;
 
 static void die(const char *msg) {
