@@ -138,8 +138,10 @@ int hashmap_upsert(hashmap *map, char *key, char *value) {
       data[index] = bkappend(data[index], key, value);
       map->size++;
     } else { // exist
+      free(search_item->p.value);
       search_item->p.value = value;
     }
+    /*hashmap_print_keys_compact(map);*/
     return index;
   } else {
     hashmap_rehash(map);
