@@ -227,7 +227,7 @@ bool try_one_request(struct Conn *conn) {
     return false;
   }
 
-  GPtrArray *command = g_ptr_array_sized_new(4);
+  GPtrArray *command = g_ptr_array_new_full(4, lstring_free);
   u8 buf[conn->incoming->size - 4];
   byte_ring_copy_n(conn->incoming, buf, 4, conn->incoming->size - 4);
   parse_request(buf, sizeof(buf), command);
