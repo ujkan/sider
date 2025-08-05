@@ -33,6 +33,7 @@ int hash_fnv1(char *key, int kssize) {
 bucket_item *bkappend(bucket b, char *key, char *value) {
   bucket_item *new_item = malloc(sizeof(bucket_item));
   new_item->p = (pair){.key = key, .value = value};
+  new_item->next = NULL;
 
   bucket_item *curr = b;
   if (curr == NULL) {
