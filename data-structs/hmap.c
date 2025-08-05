@@ -82,7 +82,7 @@ int bkdelete(bucket *b, char *key) {
 
 void hashmap_rehash(hashmap *map) {
   map->cap *= 2;
-  bucket *new_data = malloc(map->cap * sizeof(bucket)); // sizeof correct here?
+  bucket *new_data = calloc(map->cap, sizeof(bucket)); // sizeof correct here?
   // when rehashing, can we break collisions? probably should try
   bucket curr;
   for (int i = 0; i < map->size; i++) {
@@ -173,7 +173,7 @@ int hashmap_delete(hashmap *map, char *key) {
 void hashmap_init(hashmap *map, int init_cap) {
   map->cap = init_cap;
   map->size = 0;
-  map->data = malloc((map->cap) * sizeof(map->data));
+  map->data = calloc((map->cap), sizeof(map->data));
   map->hashfn = hash_fnv1;
 }
 
