@@ -116,6 +116,21 @@ void hashmap_print_keys_compact(hashmap *map) {
   }
 }
 
+void hashmap_print_entries_compact(hashmap *map) {
+  bucket curr;
+  for (int i = 0; i < map->cap; i++) {
+    curr = map->data[i];
+    if (curr == NULL) {
+      continue;
+    }
+    printf("%3d  ", i);
+    for (; curr != NULL; curr = curr->next) {
+      printf("(%s :: %s) -> ", curr->p.key, curr->p.value);
+    }
+    printf("/\n");
+  }
+}
+
 void hashmap_print_keys(hashmap *map) {
   bucket curr;
   for (int i = 0; i < map->cap; i++) {
