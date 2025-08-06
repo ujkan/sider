@@ -134,7 +134,6 @@ int hashmap_upsert(hashmap *map, char *key, char *value) {
     int index = (map->hashfn)(key, map->cap);
     bucket_item *search_item = bksearch(data[index], key);
     if (search_item == NULL) { // no exist, insert
-      pair p = {.key = key, .value = value};
       data[index] = bkappend(data[index], key, value);
       map->size++;
     } else { // exist
