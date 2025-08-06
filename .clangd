@@ -1,6 +1,2 @@
 CompileFlags:
-  Add:
-    - -I/usr/include/glib-2.0
-    - -I/usr/lib/x86_64-linux-gnu/glib-2.0/include # Or your system's equivalent path
-    - -I/home/usulejmani/development/_personal/build-your-own-redis/utils
-    - -I/home/usulejmani/development/_personal/build-your-own-redis/data-structs
+  Add: [-Iinclude, -I/usr/include/glib-2.0, -I/usr/lib/x86_64-linux-gnu/glib-2.0/include]

@@ -1,7 +1,3 @@
-#include "bytering.h"
-#include "glib.h"
-#include "glibconfig.h"
-#include "hmap.h"
 #include <errno.h>
 #include <netinet/in.h>
 #include <stdbool.h>
@@ -11,6 +7,11 @@
 #include <sys/poll.h>
 #include <sys/socket.h>
 #include <unistd.h>
+
+#include <glib.h>
+
+#include "bytering.h"
+#include "hmap.h"
 
 // TODO: Questions Q?
 // - does GByteArray store pointers to bytes or the bytes directly?

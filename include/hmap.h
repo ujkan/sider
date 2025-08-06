@@ -1,3 +1,5 @@
+#ifndef HMAP_H
+#define HMAP_H
 
 typedef struct pair {
   char *key;
@@ -38,3 +40,5 @@ char *hashmap_get(hashmap *map, char *key);
 void hashmap_print_keys_compact(hashmap *map);
 void hashmap_print_entries_compact(hashmap *map);
 void hashmap_print_keys(hashmap *map);
+
+#endif // HMAP_H
