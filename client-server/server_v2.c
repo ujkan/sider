@@ -230,7 +230,7 @@ bool try_one_request(struct Conn *conn) {
   u8 buf[conn->incoming->size - 4];
   byte_ring_copy_n(conn->incoming, buf, 4, conn->incoming->size - 4);
   parse_request(buf, sizeof(buf), command);
-  struct Response resp = {};
+  struct Response resp = {0};
   resp.data = malloc(128);
   do_request(command, &resp);
   u32 resp_len = htonl(sizeof(resp.status) + 128);
@@ -303,7 +303,7 @@ int main(void) {
   setsockopt(fd, SOL_SOCKET, SO_REUSEADDR, &val, sizeof(val));
 
   // bind()
-  struct sockaddr_in addr = {};
+  struct sockaddr_in addr = {0};
   addr.sin_addr.s_addr = htonl(INADDR_ANY);
   addr.sin_port = htons(PORT);
   addr.sin_family = AF_INET;
@@ -352,7 +352,7 @@ int main(void) {
     for (guint i = 0; i < conns->len; i++) {
       struct Conn *conn = g_ptr_array_index(conns, i);
       if (conn) {
-        struct pollfd p = {};
+        struct pollfd p = {0};
         p.fd = conn->fd;
         p.events |= (conn->want_read ? POLLIN : 0);
         p.events |= (conn->want_write ? POLLOUT : 0);
@@ -376,7 +376,7 @@ int main(void) {
     // ==> add connection to conns list
     l_pollfd = g_array_index(pollfds, struct pollfd, 0);
     if (l_pollfd.revents) {
-      struct sockaddr_in client_addr = {};
+      struct sockaddr_in client_addr = {0};
       socklen_t client_addrlen = 0;
       int connfd = accept(fd, (struct sockaddr *)&client_addr, &client_addrlen);
       if (connfd < 0) {
