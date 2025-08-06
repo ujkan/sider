@@ -164,16 +164,16 @@ void do_request(GPtrArray *cmd, struct Response *out) {
   if (cmd->len == 1) {
     char *command = ((struct LString *)g_ptr_array_index(cmd, 0))->str;
     if (strncmp(command, "print", 5) == 0) {
-      hashmap_print_keys_compact(data);
+      hashmap_print_entries_compact(data);
     }
     return;
   }
   if (cmd->len == 2) {
     char *command = ((struct LString *)g_ptr_array_index(cmd, 0))->str;
     printf("COMMAND ------------------ %s\n", command);
-    u8 *key = ((struct LString *)g_ptr_array_index(cmd, 1))->str;
+    char *key = ((struct LString *)g_ptr_array_index(cmd, 1))->str;
     if (strncmp(command, "get", 3) == 0) {
-      u8 *value = hashmap_get(data, key);
+      char *value = hashmap_get(data, key);
       if (value) {
         out->status = 0;
         memcpy(out->data, value,
@@ -194,8 +194,8 @@ void do_request(GPtrArray *cmd, struct Response *out) {
     }
   } else if (cmd->len == 3) {
     char *command = ((struct LString *)g_ptr_array_index(cmd, 0))->str;
-    u8 *key = ((struct LString *)g_ptr_array_index(cmd, 1))->str;
-    u8 *value = ((struct LString *)g_ptr_array_index(cmd, 2))->str;
+    char *key = ((struct LString *)g_ptr_array_index(cmd, 1))->str;
+    char *value = ((struct LString *)g_ptr_array_index(cmd, 2))->str;
 
     if (strncmp(command, "set", 3) == 0) {
       printf("setting; key=%s ; value=%s \n", key, value);
