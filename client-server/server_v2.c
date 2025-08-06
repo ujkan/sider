@@ -173,7 +173,6 @@ void do_request(GPtrArray *cmd, struct Response *out) {
     printf("COMMAND ------------------ %s\n", command);
     u8 *key = ((struct LString *)g_ptr_array_index(cmd, 1))->str;
     if (strncmp(command, "get", 3) == 0) {
-      u32 key_len = ((struct LString *)g_ptr_array_index(cmd, 1))->len;
       u8 *value = hashmap_get(data, key);
       if (value) {
         out->status = 0;

@@ -75,7 +75,6 @@ void byte_ring_copy_n(struct ByteRing *br, u8 *buf, u32 start, u32 len) {
     // not enough elements
     return;
   }
-  u32 br_end = byte_ring_end(br);
   start = ADD_MOD_N(start, br->start, br->cap);
   if (br->cap - start >= len) {
     memcpy(buf, br->data + start, len);
