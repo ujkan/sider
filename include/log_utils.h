@@ -9,9 +9,9 @@ static inline void print_message(const char *format, ...) {
 }
 #define PRINTLN(...) print_message(__VA_ARGS__)
 #ifdef DEBUG
-#define DPRINT(format, ...) printf(format "\n", ##__VA_ARGS__)
+#define DPRINTLN(format, ...) printf(format "\n", ##__VA_ARGS__)
 #else
-#define DPRINT(format, ...) ((void)0) /* do nothing */
+#define DPRINTLN(format, ...) ((void)0) /* do nothing */
 #endif
-#define PASS PRINT("Test passed");
-#define FAIL PRINT("Test failed");
+#define PASS PRINTLN("Test passed");
+#define FAIL PRINTLN("Test failed");
