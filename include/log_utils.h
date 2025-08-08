@@ -7,7 +7,7 @@ static inline void print_message(const char *format, ...) {
   printf("\n");
   va_end(args);
 }
-#define PRINT(...) print_message(__VA_ARGS__)
+#define PRINTLN(...) print_message(__VA_ARGS__)
 #ifdef DEBUG
 #define DPRINT(format, ...) printf(format "\n", ##__VA_ARGS__)
 #else

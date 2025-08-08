@@ -24,10 +24,10 @@ void test_bkappend_null() {
     PASS;
   } else {
     FAIL;
-    PRINT("  item key: %s", item->p.key);
-    PRINT("  item key strcmp: %d", strcmp(item->p.key, "key"));
-    PRINT("  item value: %s", item->p.value);
-    PRINT("  item next: %p", item->next);
+    PRINTLN("  item key: %s", item->p.key);
+    PRINTLN("  item key strcmp: %d", strcmp(item->p.key, "key"));
+    PRINTLN("  item value: %s", item->p.value);
+    PRINTLN("  item next: %p", item->next);
   }
 }
 
@@ -60,9 +60,9 @@ void test_bkappend_not_null() {
     PASS;
   } else {
     FAIL;
-    PRINT("  item1 -> next: %p", item1->next);
-    PRINT("  item1 -> next -> key=%s", item1->next->p.key);
-    PRINT("  item1 -> next -> value=%s", item1->next->p.value);
+    PRINTLN("  item1 -> next: %p", item1->next);
+    PRINTLN("  item1 -> next -> key=%s", item1->next->p.key);
+    PRINTLN("  item1 -> next -> value=%s", item1->next->p.value);
   }
 }
 
@@ -80,11 +80,11 @@ void test_upsert_bucket_is_null() {
   } else {
     FAIL;
     bucket_item *item = map.data[index];
-    PRINT("  item key: %s", item->p.key);
-    PRINT("  item value: %s", item->p.value);
-    PRINT("  item next: %p", item->next);
-    PRINT("  map size: %d", map.size);
-    PRINT("  map cap: %d", map.cap);
+    PRINTLN("  item key: %s", item->p.key);
+    PRINTLN("  item value: %s", item->p.value);
+    PRINTLN("  item next: %p", item->next);
+    PRINTLN("  map size: %d", map.size);
+    PRINTLN("  map cap: %d", map.cap);
   }
   hashmap_destroy(&map);
 }
@@ -99,15 +99,15 @@ void test_upsert_bucket_not_null() {
   map.hashfn = dumb_hashfn;
   // inserting some elements in same bucket
   hashmap_upsert(&map, "key1", "value1");
-  DPRINT("  after first upsert");
-  DPRINT("    data[0] key=%s", map.data[0]->p.key);
+  DPRINTLN("  after first upsert");
+  DPRINTLN("    data[0] key=%s", map.data[0]->p.key);
   if (strcmp(map.data[0]->p.key, "key1") != 0) {
     failed = 1;
   }
   hashmap_upsert(&map, "key2", "value2");
-  DPRINT("  after second upsert");
-  DPRINT("    data[0] key=%s", map.data[0]->p.key);
-  DPRINT("    data[0] next key=%s", map.data[0]->next->p.key);
+  DPRINTLN("  after second upsert");
+  DPRINTLN("    data[0] key=%s", map.data[0]->p.key);
+  DPRINTLN("    data[0] next key=%s", map.data[0]->next->p.key);
   if (strcmp(map.data[0]->p.key, "key1") != 0) {
     failed = 1;
   }
@@ -132,12 +132,12 @@ void test_upsert_bucket_not_null() {
   } else {
     FAIL;
     bucket_item *item = map.data[index]->next->next;
-    PRINT("  index: %d", index);
-    PRINT("  item key: %s", item->p.key);
-    PRINT("  item value: %s", item->p.value);
-    PRINT("  item next: %p", item->next);
-    PRINT("  map size: %d", map.size);
-    PRINT("  map cap: %d", map.cap);
+    PRINTLN("  index: %d", index);
+    PRINTLN("  item key: %s", item->p.key);
+    PRINTLN("  item value: %s", item->p.value);
+    PRINTLN("  item next: %p", item->next);
+    PRINTLN("  map size: %d", map.size);
+    PRINTLN("  map cap: %d", map.cap);
   }
   hashmap_destroy(&map);
 }
@@ -152,15 +152,15 @@ void test_upsert_rehash_bucket_not_null() {
   map.hashfn = dumb_hashfn;
   // inserting some elements in same bucket
   hashmap_upsert(&map, "key1", "value1");
-  DPRINT("  after first upsert");
-  DPRINT("    data[0] key=%s", map.data[0]->p.key);
+  DPRINTLN("  after first upsert");
+  DPRINTLN("    data[0] key=%s", map.data[0]->p.key);
   if (strcmp(map.data[0]->p.key, "key1") != 0) {
     failed = 1;
   }
   hashmap_upsert(&map, "key2", "value2");
-  DPRINT("  after second upsert");
-  DPRINT("    data[0] key=%s", map.data[0]->p.key);
-  DPRINT("    data[0] next key=%s", map.data[0]->next->p.key);
+  DPRINTLN("  after second upsert");
+  DPRINTLN("    data[0] key=%s", map.data[0]->p.key);
+  DPRINTLN("    data[0] next key=%s", map.data[0]->next->p.key);
   if (strcmp(map.data[0]->p.key, "key1") != 0) {
     failed = 1;
   }
@@ -186,12 +186,12 @@ void test_upsert_rehash_bucket_not_null() {
   } else {
     FAIL;
     bucket_item *item = map.data[index]->next->next;
-    PRINT("  index: %d", index);
-    PRINT("  item key: %s", item->p.key);
-    PRINT("  item value: %s", item->p.value);
-    PRINT("  item next: %p", item->next);
-    PRINT("  map size: %d", map.size);
-    PRINT("  map cap: %d", map.cap);
+    PRINTLN("  index: %d", index);
+    PRINTLN("  item key: %s", item->p.key);
+    PRINTLN("  item value: %s", item->p.value);
+    PRINTLN("  item next: %p", item->next);
+    PRINTLN("  map size: %d", map.size);
+    PRINTLN("  map cap: %d", map.cap);
   }
 #ifdef DEBUG
   hashmap_print_keys(&map);
@@ -246,7 +246,7 @@ void test_upsert() {
 #ifdef DEBUG
     if ((i & (i - 1)) == 0) {
       hashmap_print_keys_compact(&map);
-      PRINT("-----------");
+      PRINTLN("-----------");
     }
 #endif /* ifdef DEBUG */
   }

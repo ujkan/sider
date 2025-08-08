@@ -136,9 +136,9 @@ void hashmap_print_keys(hashmap *map) {
   bucket_item *curr;
   for (int i = 0; i < map->cap; i++) {
     curr = map->data[i];
-    PRINT("bucket %d", i);
+    PRINTLN("bucket %d", i);
     for (; curr != NULL; curr = curr->next) {
-      PRINT("  key=%s", curr->p.key);
+      PRINTLN("  key=%s", curr->p.key);
     }
   }
 }

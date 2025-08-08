@@ -114,9 +114,9 @@ void hashmap_si_print_keys(hashmap_si *map) {
   bucket_si curr;
   for (int i = 0; i < map->cap; i++) {
     curr = map->data[i];
-    PRINT("bucket_si %d", i);
+    PRINTLN("bucket_si %d", i);
     for (; curr != NULL; curr = curr->next) {
-      PRINT("  key=%s", curr->p.key);
+      PRINTLN("  key=%s", curr->p.key);
     }
   }
 }
