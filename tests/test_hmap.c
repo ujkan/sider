@@ -6,9 +6,9 @@
 
 int dumb_hashfn(char *key, int size) { return 0; }
 
-void test_bksearch() {
-  printf("test_bksearch - ");
-  bucket_item *item = bksearch(NULL, "abc");
+void test_bucket_search_key() {
+  printf("test_bucket_search_key - ");
+  bucket_item *item = bucket_search_key(NULL, "abc");
   if (item == NULL) {
     PASS;
   } else {
@@ -16,9 +16,9 @@ void test_bksearch() {
   }
 }
 
-void test_bkappend_null() {
-  printf("test_bkappend_null - ");
-  bucket_item *item = bkappend(NULL, "key", "value");
+void test_bucket_append_entry_null() {
+  printf("test_bucket_append_entry_null - ");
+  bucket_item *item = bucket_append_entry(NULL, "key", "value");
   if (strcmp(item->p.key, "key") == 0 && strcmp(item->p.value, "value") == 0 &&
       item->next == NULL) {
     PASS;
@@ -31,10 +31,10 @@ void test_bkappend_null() {
   }
 }
 
-void test_bkappend_not_null() {
-  printf("test_bkappend_not_null - ");
+void test_bucket_append_entry_not_null() {
+  printf("test_bucket_append_entry_not_null - ");
   int failed = 0;
-  bucket root = malloc(sizeof(bucket));
+  bucket_item *root = malloc(sizeof(bucket_item *));
   root->p = (pair){.key = "1", .value = "1"};
   bucket_item *item1 = malloc(sizeof(bucket_item));
   item1->p = (pair){.key = "2", .value = "2"};
@@ -43,7 +43,7 @@ void test_bkappend_not_null() {
 
   char *key = "key";
   char *value = "value";
-  bucket_item *retval = bkappend(root, key, value);
+  bucket_item *retval = bucket_append_entry(root, key, value);
 
   if (retval != root) {
     failed = 1;
@@ -290,9 +290,9 @@ void test_get() {
 }
 
 int main(void) {
-  test_bksearch();
-  test_bkappend_null();
-  test_bkappend_not_null();
+  test_bucket_search_key();
+  test_bucket_append_entry_null();
+  test_bucket_append_entry_not_null();
   test_upsert_bucket_is_null();
   test_upsert_bucket_not_null();
   test_upsert_rehash_bucket_not_null();
