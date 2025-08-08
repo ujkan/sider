@@ -30,7 +30,7 @@ int hash_fnv1(char *key, int kssize) {
   return (int)(hash % kssize);
 }
 
-bucket_item *bkappend(bucket b, char *key, char *value) {
+bucket_item *bucket_append_entry(bucket_item *b, char *key, char *value) {
   bucket_item *new_item = malloc(sizeof(bucket_item));
   new_item->p = (pair){.key = key, .value = value};
   new_item->next = NULL;
@@ -46,8 +46,7 @@ bucket_item *bkappend(bucket b, char *key, char *value) {
   return b; // return root
 }
 
-// maybe return ptr to bucket_item to avoid returning structs
-bucket_item *bksearch(bucket b, char *key) {
+bucket_item *bucket_search_key(bucket_item *b, char *key) {
   for (bucket_item *curr = b; curr != NULL; curr = curr->next) {
     if (strcmp((curr->p).key, key) == 0) {
       return curr;
@@ -56,7 +55,7 @@ bucket_item *bksearch(bucket b, char *key) {
   return NULL;
 }
 
-int bkdelete(bucket *b, char *key) {
+int bucket_delete_key(bucket_item **b, char *key) {
   if (b == NULL || *b == NULL) {
     return 0;
   }
@@ -82,16 +81,18 @@ int bkdelete(bucket *b, char *key) {
 
 void hashmap_rehash(hashmap *map) {
   map->cap *= 2;
-  bucket *new_data = calloc(map->cap, sizeof(bucket)); // sizeof correct here?
+  bucket_item **new_data =
+      calloc(map->cap, sizeof(bucket_item *)); // sizeof correct here?
   // when rehashing, can we break collisions? probably should try
-  bucket curr;
+  bucket_item *curr;
   for (int i = 0; i < map->size; i++) {
     curr = (map->data)[i];
     // for each entry in old bucket append to a bucket in the new data
     while (curr != NULL) {
       char *key = (curr->p).key;
       int index = (map->hashfn)(key, map->cap);
-      new_data[index] = bkappend(new_data[index], key, curr->p.value);
+      new_data[index] =
+          bucket_append_entry(new_data[index], key, curr->p.value);
       curr = curr->next;
     }
   }
@@ -102,7 +103,7 @@ void hashmap_rehash(hashmap *map) {
 }
 
 void hashmap_print_keys_compact(hashmap *map) {
-  bucket curr;
+  bucket_item *curr;
   for (int i = 0; i < map->cap; i++) {
     curr = map->data[i];
     if (curr == NULL) {
@@ -117,7 +118,7 @@ void hashmap_print_keys_compact(hashmap *map) {
 }
 
 void hashmap_print_entries_compact(hashmap *map) {
-  bucket curr;
+  bucket_item *curr;
   for (int i = 0; i < map->cap; i++) {
     curr = map->data[i];
     if (curr == NULL) {
@@ -132,7 +133,7 @@ void hashmap_print_entries_compact(hashmap *map) {
 }
 
 void hashmap_print_keys(hashmap *map) {
-  bucket curr;
+  bucket_item *curr;
   for (int i = 0; i < map->cap; i++) {
     curr = map->data[i];
     PRINT("bucket %d", i);
@@ -143,34 +144,28 @@ void hashmap_print_keys(hashmap *map) {
 }
 
 int hashmap_upsert(hashmap *map, char *key, char *value) {
-  if (map->size < map->cap) {
-    bucket *data = map->data;
-
-    int index = (map->hashfn)(key, map->cap);
-    bucket_item *search_item = bksearch(data[index], key);
-    if (search_item == NULL) { // no exist, insert
-      data[index] = bkappend(data[index], key, value);
-      map->size++;
-    } else { // exist
-      free(search_item->p.value);
-      search_item->p.value = value;
-    }
-    /*hashmap_print_keys_compact(map);*/
-    return index;
-  } else {
+  if (map->size >= map->cap) {
     hashmap_rehash(map);
-    return hashmap_upsert(
-        map, key,
-        value); // can i reuse? or is recursion dangerous; should i
-                // keep a reusable safe upsert to avoid recursion?
   }
-  return -1;
+  bucket_item **data = map->data;
+
+  int index = (map->hashfn)(key, map->cap);
+  bucket_item *search_item = bucket_search_key(data[index], key);
+  if (search_item == NULL) { // no exist, insert
+    data[index] = bucket_append_entry(data[index], key, value);
+    map->size++;
+  } else { // exist
+    free(search_item->p.value);
+    search_item->p.value = value;
+  }
+  /*hashmap_print_keys_compact(map);*/
+  return index;
 }
 
 char *hashmap_get(hashmap *map, char *key) {
   int index = (map->hashfn)(key, map->cap);
-  bucket bkt = map->data[index];
-  bucket_item *search_item = bksearch(bkt, key);
+  bucket_item *bkt = map->data[index];
+  bucket_item *search_item = bucket_search_key(bkt, key);
   if (search_item == NULL) {
     return NULL;
   } else {
@@ -180,7 +175,7 @@ char *hashmap_get(hashmap *map, char *key) {
 
 int hashmap_delete(hashmap *map, char *key) {
   int index = (map->hashfn)(key, map->cap);
-  int ret = bkdelete(&map->data[index], key);
+  int ret = bucket_delete_key(&map->data[index], key);
   return ret;
 }
 

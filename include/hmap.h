@@ -11,11 +11,9 @@ typedef struct bucket_item {
   struct bucket_item *next;
 } bucket_item;
 
-typedef bucket_item
-    *bucket; // a bucket is a LL of bucket_item (ptr to root item)
 
 typedef struct hashmap {
-  bucket *data; // dynamic array of buckets
+  bucket_item **data; // dynamic array of buckets
   int size;
   int cap;
   int (*hashfn)(char *, int);
@@ -24,9 +22,9 @@ typedef struct hashmap {
 int hash(char *key, int kssize);
 
 // bucket fns
-bucket_item *bkappend(bucket b, char *key, char *value);
-bucket_item *bksearch(bucket b, char *key);
-int bkdelete(bucket *b, char *key);
+bucket_item *bucket_append_entry(bucket_item *head, char *key, char *value);
+bucket_item *bucket_search_key(bucket_item *head, char *key);
+int bucket_delete_key(bucket_item **b, char *key);
 
 // hashmap fns
 void hashmap_init(hashmap *map, int init_cap);
