@@ -6,12 +6,14 @@
 #include <stdlib.h>
 #include <sys/poll.h>
 #include <sys/socket.h>
+#include <sys/types.h>
 #include <unistd.h>
 
 #include <glib.h>
 
 #include "bytering.h"
 #include "hmap.h"
+#include "u_ptr_array.h"
 
 // TODO: Questions Q?
 // - does GByteArray store pointers to bytes or the bytes directly?
@@ -42,13 +44,6 @@ struct Conn {
   struct ByteRing *outgoing;
 };
 
-void _g_ptr_array_set(GPtrArray *array, guint index, gpointer data) {
-  if (index >= array->len) {
-    g_ptr_array_set_size(array, index + 4);
-  }
-  g_ptr_array_index(array, index) = data;
-}
-
 int _g_array_copy_n(void *dest, GArray *src, size_t n) {
   if (n > src->len) {
     return -1;
@@ -57,7 +52,7 @@ int _g_array_copy_n(void *dest, GArray *src, size_t n) {
   return 0;
 }
 
-void conn_free(gpointer conn) {
+void conn_free(void *conn) {
   free(((struct Conn *)conn)->incoming->data);
   free(((struct Conn *)conn)->incoming);
   free(((struct Conn *)conn)->outgoing->data);
@@ -108,9 +103,9 @@ struct LString {
   u32 len;
   char *str;
 };
-void lstring_free(gpointer data) {
+void lstring_free(void *data) {
   free(((struct LString *)data)->str);
-  free(data);
+  free((void *)data);
 }
 
 struct Response {
@@ -118,7 +113,7 @@ struct Response {
   u8 *data;
 };
 
-int32_t parse_request(u8 *buf, u32 len, GPtrArray *out) {
+int32_t parse_request(u8 *buf, u32 len, PtrArray *out) {
   u32 nstr;
   u8 *curr = buf;
   const u8 *end = buf + len;
@@ -149,7 +144,7 @@ int32_t parse_request(u8 *buf, u32 len, GPtrArray *out) {
       return -1;
     }
     curr += s->len;
-    g_ptr_array_add(out, s);
+    ptr_array_add(out, s);
   }
   if (curr != end) {
     return -1;
@@ -159,20 +154,20 @@ int32_t parse_request(u8 *buf, u32 len, GPtrArray *out) {
 
 static struct hashmap *data;
 
-void do_request(GPtrArray *cmd, struct Response *out) {
+void do_request(PtrArray *cmd, struct Response *out) {
   out->data[0] = '\0';
   out->status = 1;
   if (cmd->len == 1) {
-    char *command = ((struct LString *)g_ptr_array_index(cmd, 0))->str;
+    char *command = ((struct LString *)ptr_array_index(cmd, 0))->str;
     if (strncmp(command, "print", 5) == 0) {
       hashmap_print_entries_compact(data);
     }
     return;
   }
   if (cmd->len == 2) {
-    char *command = ((struct LString *)g_ptr_array_index(cmd, 0))->str;
+    char *command = ((struct LString *)ptr_array_index(cmd, 0))->str;
     printf("COMMAND ------------------ %s\n", command);
-    char *key = ((struct LString *)g_ptr_array_index(cmd, 1))->str;
+    char *key = ((struct LString *)ptr_array_index(cmd, 1))->str;
     if (strncmp(command, "get", 3) == 0) {
       char *value = hashmap_get(data, key);
       if (value) {
@@ -194,9 +189,9 @@ void do_request(GPtrArray *cmd, struct Response *out) {
       }
     }
   } else if (cmd->len == 3) {
-    char *command = ((struct LString *)g_ptr_array_index(cmd, 0))->str;
-    char *key = ((struct LString *)g_ptr_array_index(cmd, 1))->str;
-    char *value = ((struct LString *)g_ptr_array_index(cmd, 2))->str;
+    char *command = ((struct LString *)ptr_array_index(cmd, 0))->str;
+    char *key = ((struct LString *)ptr_array_index(cmd, 1))->str;
+    char *value = ((struct LString *)ptr_array_index(cmd, 2))->str;
 
     if (strncmp(command, "set", 3) == 0) {
       printf("setting; key=%s ; value=%s \n", key, value);
@@ -227,7 +222,7 @@ bool try_one_request(struct Conn *conn) {
     return false;
   }
 
-  GPtrArray *command = g_ptr_array_new_full(4, lstring_free);
+  PtrArray *command = ptr_array_new_full(4, lstring_free);
   u8 buf[conn->incoming->size - 4];
   byte_ring_copy_n(conn->incoming, buf, 4, conn->incoming->size - 4);
   parse_request(buf, sizeof(buf), command);
@@ -239,7 +234,7 @@ bool try_one_request(struct Conn *conn) {
   byte_ring_append_n(conn->outgoing, (const u8 *)&resp.status, 4);
   byte_ring_append_n(conn->outgoing, (const u8 *)resp.data, 128);
   free(resp.data);
-  /*g_ptr_array_free(command, TRUE);*/
+  /*ptr_array_free(command, TRUE);*/
 
   // response part
   /*u8 reply[msg_len];*/
@@ -320,8 +315,8 @@ int main(void) {
     die("listen()");
   }
 
-  GPtrArray *conns = g_ptr_array_new_full(10, conn_free);
-  g_ptr_array_set_size(conns, 10);
+  PtrArray *conns = ptr_array_new_full(10, conn_free);
+  ptr_array_set_length(conns, 10);
   GArray *pollfds = g_array_sized_new(FALSE, TRUE, sizeof(struct pollfd), 10);
   struct pollfd l_pollfd = {fd, POLLIN, 0};
   g_array_append_val(pollfds, l_pollfd);
@@ -351,7 +346,7 @@ int main(void) {
 
     // prepare connections for polling
     for (guint i = 0; i < conns->len; i++) {
-      struct Conn *conn = g_ptr_array_index(conns, i);
+      struct Conn *conn = (struct Conn *)ptr_array_index(conns, i);
       if (conn) {
         struct pollfd p = {0};
         p.fd = conn->fd;
@@ -395,11 +390,7 @@ int main(void) {
       struct Conn *conn = conn_init(connfd);
       conn->want_read = true;
 
-      // NOTE: must use a custom "set" method because
-      // the insert method shifts everything after index to the right, so what
-      // was previously at index 5 becomes index 6 if we insert at index=4. this
-      // is buggy
-      _g_ptr_array_set(conns, conn->fd, conn);
+      ptr_array_set(conns, conn->fd, conn);
     }
 
     // if conn socket revents
@@ -409,7 +400,7 @@ int main(void) {
       short ready = pollfd.revents;
 
       // NOTE: we index the conns array with the fd
-      struct Conn *conn = g_ptr_array_index(
+      struct Conn *conn = (struct Conn *)ptr_array_index(
           conns, pollfd.fd); // value at arr[fd], a ptr to Conn
 
       if (ready & POLLIN) {
@@ -421,9 +412,9 @@ int main(void) {
       if ((ready & POLLERR) || conn->want_close) {
         int connfd = conn->fd;
         close(connfd);
-        conn_free(conn);
-        free(conn);
-        _g_ptr_array_set(conns, connfd, NULL);
+        // NOTE: set also frees the entry it replaces
+        // so no need to free it explicitly
+        ptr_array_set(conns, connfd, NULL);
       }
     }
   }
