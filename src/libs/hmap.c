@@ -198,6 +198,8 @@ void hashmap_destroy(hashmap *map) {
     while (curr != NULL) {
       bucket_item *tmp = curr;
       curr = curr->next;
+      lstring_free(tmp->p.key);
+      lstring_free(tmp->p.value);
       free(tmp);
     }
   }
