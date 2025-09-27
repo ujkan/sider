@@ -266,6 +266,14 @@ bool try_one_request(struct Conn *conn) {
   byte_ring_append_n(conn->outgoing, (const u8 *)&resp.status, 4);
   byte_ring_append_n(conn->outgoing, (const u8 *)resp.data, resp.data_len);
   free(resp.data);
+  if (command.type == COMMAND_TYPE_GET || command.type == COMMAND_TYPE_DELETE) {
+    ptr_array_free(cmd_arr, true);
+  }
+  if (command.type == COMMAND_TYPE_SET) {
+    lstring_free(ptr_array_index(cmd_arr, 0));
+    free(cmd_arr->data);
+    free(cmd_arr);
+  }
   // TODO: fix memory leak; command is never freed ! the issue is ofc
   // that the LStr that get used in hashmap are in command so i can't free
   // them otherwise i won't have any values
