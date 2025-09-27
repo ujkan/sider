@@ -12,6 +12,7 @@
 
 #include "bytering.h"
 #include "hmap.h"
+#include "lstr.h"
 #include "u_array.h"
 #include "u_ptr_array.h"
 
@@ -57,8 +58,8 @@ struct Conn *conn_init(int fd) {
   conn->want_read = false;
   conn->want_write = false;
   conn->want_close = false;
-  conn->incoming = byte_ring_init(1024);
-  conn->outgoing = byte_ring_init(1024);
+  conn->incoming = byte_ring_init(4096);
+  conn->outgoing = byte_ring_init(4096);
   return conn;
 }
 
@@ -91,18 +92,10 @@ bool read_str(const u8 *start, const u8 *end, u32 msg_len, u8 *buf) {
 // 0x00000002 0x00000001 "r" 0x00000005 "hello"
 // the request is: get "hello"
 
-struct LString {
-  u32 len;
-  char *str;
-};
-void lstring_free(void *data) {
-  free(((struct LString *)data)->str);
-  free((void *)data);
-}
-
 struct Response {
   u32 status;
   u8 *data;
+  u32 len;
 };
 
 int32_t parse_request(u8 *buf, u32 len, PtrArray *out) {
@@ -120,18 +113,19 @@ int32_t parse_request(u8 *buf, u32 len, PtrArray *out) {
 
   curr += 4;
   for (u32 i = 0; i < nstr; i++) {
-    struct LString *s = malloc(sizeof(struct LString));
 
-    bool rv = read_u32(curr, end, &s->len);
-    s->len = ntohl(s->len);
+    u32 len;
+    bool rv = read_u32(curr, end, &len);
     if (!rv) {
       return -1;
     }
+    len = ntohl(len);
+    LString *s = lstring_create(len);
     curr += 4;
 
-    s->str = malloc(s->len);
+    s->data = malloc(s->len);
 
-    rv = read_str(curr, end, s->len, (u8 *)s->str);
+    rv = read_str(curr, end, s->len, (u8 *)s->data);
     if (!rv) {
       return -1;
     }
@@ -147,26 +141,28 @@ int32_t parse_request(u8 *buf, u32 len, PtrArray *out) {
 static struct hashmap *data;
 
 void do_request(PtrArray *cmd, struct Response *out) {
-  out->data[0] = '\0';
+  out->data[0] = 0;
   out->status = 1;
+  out->len = 0;
   if (cmd->len == 1) {
-    char *command = ((struct LString *)ptr_array_index(cmd, 0))->str;
-    if (strncmp(command, "print", 5) == 0) {
+    u8 *command = ((LString *)ptr_array_index(cmd, 0))->data;
+    if (strncmp((char *)command, "print", 5) == 0) {
       hashmap_print_entries_compact(data);
     }
     return;
   }
   if (cmd->len == 2) {
-    char *command = ((struct LString *)ptr_array_index(cmd, 0))->str;
-    printf("COMMAND ------------------ %s\n", command);
-    char *key = ((struct LString *)ptr_array_index(cmd, 1))->str;
-    if (strncmp(command, "get", 3) == 0) {
-      char *value = hashmap_get(data, key);
+    char *command = ((LString *)ptr_array_index(cmd, 0))->data;
+    /*printf("COMMAND ------------------ %s\n", command);*/
+    LString *key = ((LString *)ptr_array_index(cmd, 1));
+    if (strncmp((char *)command, "get", 3) == 0) {
+      LString *value = hashmap_get(data, key);
       if (value) {
         out->status = 0;
-        memcpy(out->data, value,
-               strlen(value)); // TODO: fix, should be val_len, but we don't store LStr :(
-                               // risky since value is not null-terminated
+        memcpy(out->data, value->data,
+               value->len); // TODO: fix, should be val_len, but we don't store
+        // LStr :( risky since value is not null-terminated
+        out->len = value->len;
         /*byte_ring_append_n(out->data, value, key_len);*/
       } else {
         out->status = 1; // not found
@@ -182,12 +178,12 @@ void do_request(PtrArray *cmd, struct Response *out) {
       }
     }
   } else if (cmd->len == 3) {
-    char *command = ((struct LString *)ptr_array_index(cmd, 0))->str;
-    char *key = ((struct LString *)ptr_array_index(cmd, 1))->str;
-    char *value = ((struct LString *)ptr_array_index(cmd, 2))->str;
+    char *command = ((LString *)ptr_array_index(cmd, 0))->data;
+    LString *key = ((LString *)ptr_array_index(cmd, 1));
+    LString *value = ((LString *)ptr_array_index(cmd, 2));
 
     if (strncmp(command, "set", 3) == 0) {
-      printf("setting; key=%s ; value=%s \n", key, value);
+      /*printf("setting; key=%s ; value=%s \n", key, value);*/
       hashmap_upsert(data, key, value);
       out->status = 0;
     }
@@ -220,13 +216,24 @@ bool try_one_request(struct Conn *conn) {
   byte_ring_copy_n(conn->incoming, buf, 4, conn->incoming->size - 4);
   parse_request(buf, sizeof(buf), command);
   struct Response resp = {0};
-  resp.data = calloc(128, 1); // calloc to set everything to 0
+  // TODO: ehhhh weird case; well btw this needs to be coordinated with the size of outgoing
+  // or maybe it should work independently.
+  // i had the case where before these changes i had issues with v large values
+  // soooo it needs to be stress tested
+  // also, appending entire resp.data to outgoing made no sense; so i added a resp.len attr
+  resp.data = calloc(4096, 1); // calloc to set everything to 0
   do_request(command, &resp);
-  u32 resp_len = htonl(sizeof(resp.status) + 128);
+  u32 resp_len = htonl(sizeof(resp.status) + resp.len);
   byte_ring_append_n(conn->outgoing, (const u8 *)&resp_len, 4);
   byte_ring_append_n(conn->outgoing, (const u8 *)&resp.status, 4);
-  byte_ring_append_n(conn->outgoing, (const u8 *)resp.data, 128);
+  byte_ring_append_n(conn->outgoing, (const u8 *)resp.data, resp.len);
   free(resp.data);
+  // TODO: fix memory leak; command is never freed ! the issue is ofc
+  // that the LStr that get used in hashmap are in command so i can't free
+  // them otherwise i won't have any values
+  // on the other hand, i need to free SOMETHING in command, at least during GET and SET
+  // prob best alt is to copy the value when i store it
+  // this is classical ownership transfer! now i understand rust a bit better :)
   /*ptr_array_free(command, TRUE);*/
 
   // response part
