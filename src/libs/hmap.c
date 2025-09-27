@@ -156,8 +156,10 @@ int hashmap_upsert(hashmap *map, LString *key, LString *value) {
   if (search_item == NULL) { // no exist, insert
     data[index] = bucket_append_entry(data[index], key, value);
     map->size++;
-  } else { // exist
+  } else {             // exist
+    lstring_free(search_item->p.key);
     lstring_free(search_item->p.value);
+    search_item->p.key = key;
     search_item->p.value = value;
   }
   /*hashmap_print_keys_compact(map);*/
