@@ -197,8 +197,7 @@ void do_request(struct Command *cmd, struct Response *out) {
     value = hashmap_get(data, key);
     if (value) {
       out->status = 0;
-      memcpy(out->data, value->data,
-             value->len);
+      memcpy(out->data, value->data, value->len);
       out->data_len = value->len;
     } else {
       out->status = 1; // not found
@@ -272,26 +271,7 @@ bool try_one_request(struct Conn *conn) {
     free(cmd_arr->data);
     free(cmd_arr);
   }
-  // TODO: fix memory leak; command is never freed ! the issue is ofc
-  // that the LStr that get used in hashmap are in command so i can't free
-  // them otherwise i won't have any values
-  // on the other hand, i need to free SOMETHING in command, at least during GET
-  // and SET prob best alt is to copy the value when i store it this is
-  // classical ownership transfer! now i understand rust a bit better :)
-  /*ptr_array_free(command, TRUE);*/
 
-  // response part
-  /*u8 reply[msg_len];*/
-  /*char prefix[5] = "echo:";*/
-  /*uint32_t len = htonl(sizeof(reply) + 5);*/
-  /*byte_ring_append_n(conn->outgoing, (const guint8 *)&len, 4);*/
-  /*byte_ring_append_n(conn->outgoing, (const guint8 *)prefix, 5);*/
-  /*printf("msg_len=%d\n", msg_len);*/
-  // TODO: implement a copy function between two rings
-  /*byte_ring_copy_n(conn->incoming, reply, 4, msg_len);*/
-  /*byte_ring_append_n(conn->outgoing, reply, msg_len);*/
-
-  // clean up incoming buffer
   /*byte_ring_debug_print(conn->incoming);*/
   byte_ring_pop_first_n(conn->incoming, 4 + msg_len);
   /*byte_ring_debug_print(conn->incoming);*/
