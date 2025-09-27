@@ -80,25 +80,28 @@ int bucket_delete_key(bucket_item **b, LString *key) {
 }
 
 void hashmap_rehash(hashmap *map) {
+  int old_cap = map->cap;
   map->cap *= 2;
   bucket_item **new_data =
       calloc(map->cap, sizeof(bucket_item *)); // sizeof correct here?
   // when rehashing, can we break collisions? probably should try
   bucket_item *curr;
-  for (int i = 0; i < map->size; i++) {
+  for (int i = 0; i < old_cap; i++) {
     curr = (map->data)[i];
-    // for each entry in old bucket append to a bucket in the new data
+    // for each entry in old bucket, PREPEND this entry to the bucket
+    // in the new_data, but do not reallocate anything
+    bucket_item *prev;
     while (curr != NULL) {
-      LString *key = (curr->p).key;
-      int index = (map->hashfn)(key, map->cap);
-      new_data[index] =
-          bucket_append_entry(new_data[index], key, curr->p.value);
+      prev = curr;
       curr = curr->next;
+      LString *key = (prev->p).key;
+      int index = (map->hashfn)(key, map->cap);
+      prev->next = new_data[index];
+      new_data[index] = prev;
     }
   }
 
-
-  // TODO: we need to free old buckets !! 
+  // TODO: we need to free old buckets !!
   // maybe that's why we should use realloc instead of calloc
   free(map->data);
 
@@ -159,7 +162,7 @@ int hashmap_upsert(hashmap *map, LString *key, LString *value) {
   if (search_item == NULL) { // no exist, insert
     data[index] = bucket_append_entry(data[index], key, value);
     map->size++;
-  } else {             // exist
+  } else { // exist
     lstring_free(search_item->p.key);
     lstring_free(search_item->p.value);
     search_item->p.key = key;
