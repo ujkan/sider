@@ -1,4 +1,5 @@
 #include "bytering.h"
+#include <ctype.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -98,7 +99,7 @@ void byte_ring_print_logical_order(struct ByteRing *br) {
 
   u32 j = br->start;
   for (u32 i = 0; i + 1 < br->size; i++) { // all but last el.
-    printf("%c", br->data[j]);
+    isprint(br->data[j]) ? printf("%c", br->data[j]) : printf("_");
     printf(","); // comma!
     j = ADD1_MOD_N(j, br->cap);
   }
@@ -120,9 +121,9 @@ void byte_ring_print_physical_order(struct ByteRing *br) {
 
     if (((br->start < br_end) && (i >= br->start && i <= br_end)) ||
         ((br->start >= br_end) && !(i > br_end && i < br->start))) {
-      printf("%c", br->data[i]);
+      isprint(br->data[i]) ? printf("%c", br->data[i]) : printf("_");
     } else {
-      printf("_");
+      printf(" - ");
     }
     printf(","); // comma!
   }
