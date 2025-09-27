@@ -58,13 +58,13 @@ struct Conn *conn_init(int fd) {
   conn->want_read = false;
   conn->want_write = false;
   conn->want_close = false;
-  conn->incoming = byte_ring_init(4096);
-  conn->outgoing = byte_ring_init(4096);
+  conn->incoming = byte_ring_init(1024);
+  conn->outgoing = byte_ring_init(1024);
   return conn;
 }
 
 typedef enum {
-  COMMAND_TYPE_READ = 'r',
+  COMMAND_TYPE_GET = 'g',
   COMMAND_TYPE_SET = 's',
   COMMAND_TYPE_DELETE = 'd'
 } CommandType;
@@ -95,7 +95,18 @@ bool read_str(const u8 *start, const u8 *end, u32 msg_len, u8 *buf) {
 struct Response {
   u32 status;
   u8 *data;
-  u32 len;
+  u32 data_len;
+};
+
+struct Command {
+  CommandType type;
+  union {
+    struct {
+      LString *key;
+      LString *value;
+    } pair;
+    LString *key;
+  } data;
 };
 
 int32_t parse_request(u8 *buf, u32 len, PtrArray *out) {
@@ -140,55 +151,82 @@ int32_t parse_request(u8 *buf, u32 len, PtrArray *out) {
 
 static struct hashmap *data;
 
-void do_request(PtrArray *cmd, struct Response *out) {
+int parse_command(PtrArray *cmd_arr, struct Command *command) {
+  if (cmd_arr->len < 1) {
+    return 1;
+  }
+  u8 *ctype = ((LString *)ptr_array_index(cmd_arr, 0))->data;
+  if (cmd_arr->len == 1 && strncmp((char *)ctype, "print", 5) == 0) {
+    command->type = 'p';
+    return 0;
+  }
+  if (cmd_arr->len == 2) {
+    if (strncmp((char *)ctype, "get", 3) == 0) {
+      command->type = COMMAND_TYPE_GET;
+    } else if (strncmp((char *)ctype, "del", 3) == 0) {
+      command->type = COMMAND_TYPE_DELETE;
+    } else {
+      return 1;
+    }
+    command->data.key = ((LString *)ptr_array_index(cmd_arr, 1));
+    return 0;
+  }
+  if (cmd_arr->len == 3) {
+    if (strncmp((char *)ctype, "set", 3) == 0) {
+      command->type = COMMAND_TYPE_SET;
+      command->data.pair.key = ((LString *)ptr_array_index(cmd_arr, 1));
+      command->data.pair.value = ((LString *)ptr_array_index(cmd_arr, 2));
+      return 0;
+    }
+  }
+  return 1;
+}
+
+void do_request(struct Command *cmd, struct Response *out) {
   out->data[0] = 0;
   out->status = 1;
-  out->len = 0;
-  if (cmd->len == 1) {
-    u8 *command = ((LString *)ptr_array_index(cmd, 0))->data;
-    if (strncmp((char *)command, "print", 5) == 0) {
-      hashmap_print_entries_compact(data);
-    }
+  out->data_len = 0;
+  if (cmd->type == 'p') {
+    hashmap_print_entries_compact(data);
     return;
   }
-  if (cmd->len == 2) {
-    char *command = ((LString *)ptr_array_index(cmd, 0))->data;
-    /*printf("COMMAND ------------------ %s\n", command);*/
-    LString *key = ((LString *)ptr_array_index(cmd, 1));
-    if (strncmp((char *)command, "get", 3) == 0) {
-      LString *value = hashmap_get(data, key);
-      if (value) {
-        out->status = 0;
-        memcpy(out->data, value->data,
-               value->len); // TODO: fix, should be val_len, but we don't store
-        // LStr :( risky since value is not null-terminated
-        out->len = value->len;
-        /*byte_ring_append_n(out->data, value, key_len);*/
-      } else {
-        out->status = 1; // not found
-      }
-      // handle get
-    } else if (strncmp(command, "del", 3) == 0) {
-      int rv = hashmap_delete(data, key);
-      printf("DELETE\n");
-      if (rv == 1) {
-        out->status = 0; // deleted!
-      } else {
-        out->status = 1; // not found
-      }
-    }
-  } else if (cmd->len == 3) {
-    char *command = ((LString *)ptr_array_index(cmd, 0))->data;
-    LString *key = ((LString *)ptr_array_index(cmd, 1));
-    LString *value = ((LString *)ptr_array_index(cmd, 2));
-
-    if (strncmp(command, "set", 3) == 0) {
-      /*printf("setting; key=%s ; value=%s \n", key, value);*/
-      hashmap_upsert(data, key, value);
+  /*printf("COMMAND ------------------ %s\n", command);*/
+  switch (cmd->type) {
+    LString *key;
+    LString *value;
+  case COMMAND_TYPE_GET:
+    key = cmd->data.key;
+    value = hashmap_get(data, key);
+    if (value) {
       out->status = 0;
+      memcpy(out->data, value->data,
+             value->len); // TODO: fix, should be val_len, but we don't store
+      // LStr :( risky since value is not null-terminated
+      out->data_len = value->len;
+      /*byte_ring_append_n(out->data, value, key_len);*/
+    } else {
+      out->status = 1; // not found
     }
-  } else {
-    out->status = 2; // unrecognized command
+    break;
+  case COMMAND_TYPE_DELETE:
+
+    key = cmd->data.key;
+    int rv = hashmap_delete(data, key);
+    printf("DELETE\n");
+    if (rv == 1) {
+      out->status = 0; // deleted!
+    } else {
+      out->status = 1; // not found
+    }
+    break;
+  case COMMAND_TYPE_SET:
+    key = cmd->data.pair.key;
+    value = cmd->data.pair.value;
+
+    /*printf("setting; key=%s ; value=%s \n", key, value);*/
+    hashmap_upsert(data, key, value);
+    out->status = 0;
+    break;
   }
 }
 
@@ -211,29 +249,31 @@ bool try_one_request(struct Conn *conn) {
     return false;
   }
 
-  PtrArray *command = ptr_array_new_full(4, lstring_free);
+  PtrArray *cmd_arr = ptr_array_new_full(4, lstring_free);
   u8 buf[conn->incoming->size - 4];
   byte_ring_copy_n(conn->incoming, buf, 4, conn->incoming->size - 4);
-  parse_request(buf, sizeof(buf), command);
+  parse_request(buf, sizeof(buf), cmd_arr);
+  struct Command command = {0};
+  parse_command(cmd_arr, &command);
   struct Response resp = {0};
-  // TODO: ehhhh weird case; well btw this needs to be coordinated with the size of outgoing
-  // or maybe it should work independently.
-  // i had the case where before these changes i had issues with v large values
-  // soooo it needs to be stress tested
-  // also, appending entire resp.data to outgoing made no sense; so i added a resp.len attr
+  // TODO: ehhhh weird case; well btw this needs to be coordinated with the size
+  // of outgoing or maybe it should work independently. i had the case where
+  // before these changes i had issues with v large values soooo it needs to be
+  // stress tested also, appending entire resp.data to outgoing made no sense;
+  // so i added a resp.len attr
   resp.data = calloc(4096, 1); // calloc to set everything to 0
-  do_request(command, &resp);
-  u32 resp_len = htonl(sizeof(resp.status) + resp.len);
+  do_request(&command, &resp);
+  u32 resp_len = htonl(sizeof(resp.status) + resp.data_len);
   byte_ring_append_n(conn->outgoing, (const u8 *)&resp_len, 4);
   byte_ring_append_n(conn->outgoing, (const u8 *)&resp.status, 4);
-  byte_ring_append_n(conn->outgoing, (const u8 *)resp.data, resp.len);
+  byte_ring_append_n(conn->outgoing, (const u8 *)resp.data, resp.data_len);
   free(resp.data);
   // TODO: fix memory leak; command is never freed ! the issue is ofc
   // that the LStr that get used in hashmap are in command so i can't free
   // them otherwise i won't have any values
-  // on the other hand, i need to free SOMETHING in command, at least during GET and SET
-  // prob best alt is to copy the value when i store it
-  // this is classical ownership transfer! now i understand rust a bit better :)
+  // on the other hand, i need to free SOMETHING in command, at least during GET
+  // and SET prob best alt is to copy the value when i store it this is
+  // classical ownership transfer! now i understand rust a bit better :)
   /*ptr_array_free(command, TRUE);*/
 
   // response part
