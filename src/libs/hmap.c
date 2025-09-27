@@ -97,6 +97,9 @@ void hashmap_rehash(hashmap *map) {
     }
   }
 
+
+  // TODO: we need to free old buckets !! 
+  // maybe that's why we should use realloc instead of calloc
   free(map->data);
 
   map->data =
@@ -171,10 +174,10 @@ LString *hashmap_get(hashmap *map, LString *key) {
   bucket_item *bkt = map->data[index];
   bucket_item *search_item = bucket_search_key(bkt, key);
   if (search_item == NULL) {
-      printf(" -------- X XXXXXXXX                X - NOT FOUND!");
+    printf(" -------- X XXXXXXXX                X - NOT FOUND!");
     return NULL;
   } else {
-      printf("FOUND!");
+    printf("FOUND!");
     return search_item->p.value;
   }
 }
