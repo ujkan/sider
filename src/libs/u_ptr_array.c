@@ -72,6 +72,7 @@ void ptr_array_free(PtrArray *array, bool free_seg) {
       farray->element_free_func(ptr_array_index(array, i));
     }
   }
+  free(array->data);
   free(array);
 }
 
