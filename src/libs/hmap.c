@@ -1,18 +1,18 @@
 #include "hmap.h"
 #include "log_utils.h"
+#include "lstr.h"
 #include <stdio.h>
 #include <stdlib.h>
-#include <string.h>
 
-int hash(char *key, int kssize) {
+int hash(LString *key, int kssize) {
   unsigned int h = 0;
-  while (*key) {
-    h += (unsigned char)(*key++);
+  for (uint i = 0; i < key->len; i++) {
+    h += (unsigned char)(key->data[i]);
   }
   return h % kssize;
 }
 
-int hash_fnv1(char *key, int kssize) {
+int hash_fnv1(LString *key, int kssize) {
   // FNV-1a hash algorithm constants
   const unsigned int FNV_PRIME = 16777619;
   const unsigned int FNV_OFFSET_BASIS = 2166136261;
@@ -21,16 +21,16 @@ int hash_fnv1(char *key, int kssize) {
   unsigned int hash = FNV_OFFSET_BASIS;
 
   // Process each byte in the key
-  for (char *p = key; *p != '\0'; p++) {
-    hash ^= (unsigned char)*p; // XOR with the current byte
-    hash *= FNV_PRIME;         // Multiply by the prime
+  for (u32 i = 0; i < key->len; i++) {
+    hash ^= key->data[i]; // XOR with the current byte
+    hash *= FNV_PRIME;    // Multiply by the prime
   }
 
   // Return the hash value within the key space
   return (int)(hash % kssize);
 }
 
-bucket_item *bucket_append_entry(bucket_item *b, char *key, char *value) {
+bucket_item *bucket_append_entry(bucket_item *b, LString *key, LString *value) {
   bucket_item *new_item = malloc(sizeof(bucket_item));
   new_item->p = (pair){.key = key, .value = value};
   new_item->next = NULL;
@@ -46,23 +46,23 @@ bucket_item *bucket_append_entry(bucket_item *b, char *key, char *value) {
   return b; // return root
 }
 
-bucket_item *bucket_search_key(bucket_item *b, char *key) {
+bucket_item *bucket_search_key(bucket_item *b, LString *key) {
   for (bucket_item *curr = b; curr != NULL; curr = curr->next) {
-    if (strcmp((curr->p).key, key) == 0) {
+    if (lstring_compare((curr->p).key, key) == 0) {
       return curr;
     }
   }
   return NULL;
 }
 
-int bucket_delete_key(bucket_item **b, char *key) {
+int bucket_delete_key(bucket_item **b, LString *key) {
   if (b == NULL || *b == NULL) {
     return 0;
   }
   bucket_item *prev = NULL;
   bucket_item *curr = *b;
   while (curr != NULL) {
-    if (strcmp(curr->p.key, key) == 0) {
+    if (lstring_compare(curr->p.key, key) == 0) {
       if (prev) {
         prev->next = curr->next;
       } else {
@@ -89,7 +89,7 @@ void hashmap_rehash(hashmap *map) {
     curr = (map->data)[i];
     // for each entry in old bucket append to a bucket in the new data
     while (curr != NULL) {
-      char *key = (curr->p).key;
+      LString *key = (curr->p).key;
       int index = (map->hashfn)(key, map->cap);
       new_data[index] =
           bucket_append_entry(new_data[index], key, curr->p.value);
@@ -112,7 +112,7 @@ void hashmap_print_keys_compact(hashmap *map) {
     }
     printf("%3d  ", i);
     for (; curr != NULL; curr = curr->next) {
-      printf("%s -> ", curr->p.key);
+      printf("%.*s -> ", (int)curr->p.key->len, curr->p.key->data);
     }
     printf("/\n");
   }
@@ -127,7 +127,8 @@ void hashmap_print_entries_compact(hashmap *map) {
     }
     printf("%3d  ", i);
     for (; curr != NULL; curr = curr->next) {
-      printf("(%s :: %s) -> ", curr->p.key, curr->p.value);
+      printf("(%.*s :: %.*s) -> ", (int)curr->p.key->len, curr->p.key->data,
+             (int)curr->p.value->len, curr->p.value->data);
     }
     printf("/\n");
   }
@@ -144,7 +145,7 @@ void hashmap_print_keys(hashmap *map) {
   }
 }
 
-int hashmap_upsert(hashmap *map, char *key, char *value) {
+int hashmap_upsert(hashmap *map, LString *key, LString *value) {
   if (map->size >= map->cap) {
     hashmap_rehash(map);
   }
@@ -156,25 +157,27 @@ int hashmap_upsert(hashmap *map, char *key, char *value) {
     data[index] = bucket_append_entry(data[index], key, value);
     map->size++;
   } else { // exist
-    free(search_item->p.value);
+    lstring_free(search_item->p.value);
     search_item->p.value = value;
   }
   /*hashmap_print_keys_compact(map);*/
   return index;
 }
 
-char *hashmap_get(hashmap *map, char *key) {
+LString *hashmap_get(hashmap *map, LString *key) {
   int index = (map->hashfn)(key, map->cap);
   bucket_item *bkt = map->data[index];
   bucket_item *search_item = bucket_search_key(bkt, key);
   if (search_item == NULL) {
+      printf(" -------- X XXXXXXXX                X - NOT FOUND!");
     return NULL;
   } else {
+      printf("FOUND!");
     return search_item->p.value;
   }
 }
 
-int hashmap_delete(hashmap *map, char *key) {
+int hashmap_delete(hashmap *map, LString *key) {
   int index = (map->hashfn)(key, map->cap);
   int ret = bucket_delete_key(&map->data[index], key);
   return ret;
