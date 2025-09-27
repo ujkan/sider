@@ -99,7 +99,8 @@ void hashmap_rehash(hashmap *map) {
 
   free(map->data);
 
-  map->data = new_data; // use after free? or assignment ok?
+  map->data =
+      new_data; // TODO: delete this // use after free? or assignment ok?
 }
 
 void hashmap_print_keys_compact(hashmap *map) {
