@@ -68,8 +68,8 @@ int bucket_delete_key(bucket_item **b, LString *key) {
       } else {
         *b = curr->next;
       }
-      free(curr->p.key);
-      free(curr->p.value);
+      lstring_free(curr->p.key);
+      lstring_free(curr->p.value);
       free(curr);
       return 1;
     }
