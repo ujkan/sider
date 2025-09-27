@@ -134,8 +134,6 @@ int32_t parse_request(u8 *buf, u32 len, PtrArray *out) {
     LString *s = lstring_create(len);
     curr += 4;
 
-    s->data = malloc(s->len);
-
     rv = read_str(curr, end, s->len, (u8 *)s->data);
     if (!rv) {
       return -1;
