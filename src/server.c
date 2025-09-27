@@ -198,10 +198,8 @@ void do_request(struct Command *cmd, struct Response *out) {
     if (value) {
       out->status = 0;
       memcpy(out->data, value->data,
-             value->len); // TODO: fix, should be val_len, but we don't store
-      // LStr :( risky since value is not null-terminated
+             value->len);
       out->data_len = value->len;
-      /*byte_ring_append_n(out->data, value, key_len);*/
     } else {
       out->status = 1; // not found
     }
@@ -259,7 +257,7 @@ bool try_one_request(struct Conn *conn) {
   // before these changes i had issues with v large values soooo it needs to be
   // stress tested also, appending entire resp.data to outgoing made no sense;
   // so i added a resp.len attr
-  resp.data = calloc(4096, 1); // calloc to set everything to 0
+  resp.data = calloc(1024, 1); // calloc to set everything to 0
   do_request(&command, &resp);
   u32 resp_len = htonl(sizeof(resp.status) + resp.data_len);
   byte_ring_append_n(conn->outgoing, (const u8 *)&resp_len, 4);
@@ -294,9 +292,9 @@ bool try_one_request(struct Conn *conn) {
   /*byte_ring_append_n(conn->outgoing, reply, msg_len);*/
 
   // clean up incoming buffer
-  byte_ring_debug_print(conn->incoming);
+  /*byte_ring_debug_print(conn->incoming);*/
   byte_ring_pop_first_n(conn->incoming, 4 + msg_len);
-  byte_ring_debug_print(conn->incoming);
+  /*byte_ring_debug_print(conn->incoming);*/
 
   return true;
 }
