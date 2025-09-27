@@ -4,15 +4,15 @@
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
 #include <sys/poll.h>
 #include <sys/socket.h>
 #include <sys/types.h>
 #include <unistd.h>
 
-#include <glib.h>
-
 #include "bytering.h"
 #include "hmap.h"
+#include "u_array.h"
 #include "u_ptr_array.h"
 
 // TODO: Questions Q?
@@ -43,14 +43,6 @@ struct Conn {
   struct ByteRing *incoming;
   struct ByteRing *outgoing;
 };
-
-int _g_array_copy_n(void *dest, GArray *src, size_t n) {
-  if (n > src->len) {
-    return -1;
-  }
-  memcpy(dest, src->data, n);
-  return 0;
-}
 
 void conn_free(void *conn) {
   free(((struct Conn *)conn)->incoming->data);
@@ -173,7 +165,8 @@ void do_request(PtrArray *cmd, struct Response *out) {
       if (value) {
         out->status = 0;
         memcpy(out->data, value,
-               strlen(value)); // TODO: fix, should be val_len, but unknown len
+               strlen(value)); // TODO: fix, should be val_len, but we don't store LStr :(
+                               // risky since value is not null-terminated
         /*byte_ring_append_n(out->data, value, key_len);*/
       } else {
         out->status = 1; // not found
@@ -227,7 +220,7 @@ bool try_one_request(struct Conn *conn) {
   byte_ring_copy_n(conn->incoming, buf, 4, conn->incoming->size - 4);
   parse_request(buf, sizeof(buf), command);
   struct Response resp = {0};
-  resp.data = malloc(128);
+  resp.data = calloc(128, 1); // calloc to set everything to 0
   do_request(command, &resp);
   u32 resp_len = htonl(sizeof(resp.status) + 128);
   byte_ring_append_n(conn->outgoing, (const u8 *)&resp_len, 4);
@@ -264,7 +257,7 @@ void handle_read(struct Conn *conn) {
     conn->want_close = true;
     return;
   }
-  byte_ring_append_n(conn->incoming, (const guint8 *)rbuf, rv);
+  byte_ring_append_n(conn->incoming, (const u8 *)rbuf, rv);
   while (try_one_request(conn)) {
   }
   if (conn->outgoing->size > 0) {
@@ -317,9 +310,9 @@ int main(void) {
 
   PtrArray *conns = ptr_array_new_full(10, conn_free);
   ptr_array_set_length(conns, 10);
-  GArray *pollfds = g_array_sized_new(FALSE, TRUE, sizeof(struct pollfd), 10);
+  Array *pollfds = array_sized_new(10, sizeof(struct pollfd));
   struct pollfd l_pollfd = {fd, POLLIN, 0};
-  g_array_append_val(pollfds, l_pollfd);
+  array_push(pollfds, &l_pollfd);
 
   data = malloc(sizeof(hashmap));
   hashmap_init(data, 128);
@@ -342,10 +335,10 @@ int main(void) {
     // TODO: alternatively keep a map but would have to find a map where
     // the "map.getValues()" struct is a simple pointer to struct pollfd and not
     // some other type, since that's what "poll()" admits
-    g_array_set_size(pollfds, 1);
+    array_set_length(pollfds, 1);
 
     // prepare connections for polling
-    for (guint i = 0; i < conns->len; i++) {
+    for (uint i = 0; i < conns->len; i++) {
       struct Conn *conn = (struct Conn *)ptr_array_index(conns, i);
       if (conn) {
         struct pollfd p = {0};
@@ -353,11 +346,11 @@ int main(void) {
         p.events |= (conn->want_read ? POLLIN : 0);
         p.events |= (conn->want_write ? POLLOUT : 0);
         p.events |= (conn->want_close ? POLLERR : 0);
-        // NOTE: append_val is a macro for append_vals with &p (ptr to p)
+        // NOTE: push is a macro for append_vals with &p (ptr to p)
         // yet this doesn't mean that the *pointer* value is stored, rather
         // GLib memcpy's the values of the struct at that address, and it knows
         // how much to read because of element_size during initialization
-        g_array_append_val(pollfds, p);
+        array_push(pollfds, &p);
       }
     }
 
@@ -370,7 +363,7 @@ int main(void) {
     // if listening socket revents = READ/POLLIN
     // means a socket is trying to connect (aka "can accept")
     // ==> add connection to conns list
-    l_pollfd = g_array_index(pollfds, struct pollfd, 0);
+    l_pollfd = array_index(pollfds, struct pollfd, 0);
     if (l_pollfd.revents) {
       struct sockaddr_in client_addr = {0};
       socklen_t client_addrlen = 0;
@@ -395,8 +388,8 @@ int main(void) {
 
     // if conn socket revents
     // then handle depending on POLLIN, POLLOUT, POLLERR
-    for (guint i = 1; i < pollfds->len; i++) {
-      struct pollfd pollfd = g_array_index(pollfds, struct pollfd, i);
+    for (uint i = 1; i < pollfds->len; i++) {
+      struct pollfd pollfd = array_index(pollfds, struct pollfd, i);
       short ready = pollfd.revents;
 
       // NOTE: we index the conns array with the fd

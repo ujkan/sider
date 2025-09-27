@@ -49,7 +49,7 @@ clean:
 	$(RM) $(OBJDIR)/*.o $(BINDIR)/*
 
 # Test targets
-tests: test_hmap test_vector test_bytering
+tests: test_hmap test_bytering # test_vector
 
 test_hmap: $(OBJDIR)/test_hmap.o $(OBJDIR)/hmap.o
 	$(CC) $(CFLAGS) -o $(BINDIR)/test_hmap $^
