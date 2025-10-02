@@ -27,6 +27,9 @@ static uint16_t PORT = 8085;
 static uint32_t k_max_len = 4096;
 static uint32_t k_min_args = 1;
 static uint32_t k_max_args = 3;
+static uint32_t k_max_key_len = 4;
+static uint32_t k_max_value_len = 4;
+static struct hashmap *data;
 
 static void die(const char *msg) {
   int err = errno;
@@ -63,12 +66,6 @@ struct Conn *conn_init(int fd) {
   return conn;
 }
 
-typedef enum {
-  COMMAND_TYPE_GET = 'g',
-  COMMAND_TYPE_SET = 's',
-  COMMAND_TYPE_DELETE = 'd'
-} CommandType;
-
 bool read_u32(const u8 *start, const u8 *end, u32 *value) {
   if (start + 4 > end) {
     return false;
@@ -85,19 +82,17 @@ bool read_str(const u8 *start, const u8 *end, u32 msg_len, u8 *buf) {
   return true;
 }
 
-// nstr len1 msg1 len2 msg2 len3 msg3 ...
-// 4B   4B   ...  4B   ...  4B   ...
-// e.g.
-// nstr       len1       m1  len2        m2
-// 0x00000002 0x00000001 "r" 0x00000005 "hello"
-// the request is: get "hello"
-
 struct Response {
   u32 status;
   u8 *data;
   u32 data_len;
 };
 
+typedef enum {
+  COMMAND_TYPE_GET = 'g',
+  COMMAND_TYPE_SET = 's',
+  COMMAND_TYPE_DELETE = 'd'
+} CommandType;
 struct Command {
   CommandType type;
   union {
@@ -109,6 +104,12 @@ struct Command {
   } data;
 };
 
+// nstr len1 msg1 len2 msg2 len3 msg3 ...
+// 4B   4B   ...  4B   ...  4B   ...
+// e.g.
+// the request is: "get hello"
+// nstr       len1       m1  len2       m2
+// 0x00000002 0x00000003 get 0x00000005 hello
 int32_t parse_request(u8 *buf, u32 len, PtrArray *out) {
   u32 nstr;
   u8 *curr = buf;
@@ -147,8 +148,6 @@ int32_t parse_request(u8 *buf, u32 len, PtrArray *out) {
   return 0;
 }
 
-static struct hashmap *data;
-
 int parse_command(PtrArray *cmd_arr, struct Command *command) {
   if (cmd_arr->len < 1) {
     return 1;
@@ -180,10 +179,9 @@ int parse_command(PtrArray *cmd_arr, struct Command *command) {
   return 1;
 }
 
-void do_request(struct Command *cmd, struct Response *out) {
-  out->data[0] = 0;
-  out->status = 1;
+void handle_command(struct Command *cmd, struct Response *out) {
   out->data_len = 0;
+  out->status = 2;
   if (cmd->type == 'p') {
     hashmap_print_entries_compact(data);
     return;
@@ -194,6 +192,11 @@ void do_request(struct Command *cmd, struct Response *out) {
     LString *value;
   case COMMAND_TYPE_GET:
     key = cmd->data.key;
+    if (key->len > k_max_key_len) {
+      msg("Key length exceeds maximum length.");
+      out->status = 2; // invalid request!
+      break;
+    }
     value = hashmap_get(data, key);
     if (value) {
       out->status = 0;
@@ -214,15 +217,31 @@ void do_request(struct Command *cmd, struct Response *out) {
       out->status = 1; // not found
     }
     break;
+    ;
   case COMMAND_TYPE_SET:
     key = cmd->data.pair.key;
     value = cmd->data.pair.value;
-
+    if (key->len > k_max_key_len) {
+      msg("Key length exceeds maximum length.");
+      out->status = 2; // invalid request!
+      break;
+    }
+    if (value->len > k_max_value_len) {
+      msg("Value length exceeds maximum length.");
+      out->status = 2; // invalid request!
+      break;
+    }
     /*printf("setting; key=%s ; value=%s \n", key, value);*/
     hashmap_upsert(data, key, value);
     out->status = 0;
     break;
   }
+  if (out->status == 2) {
+    const char *r = "Invalid request!";
+    memcpy(out->data, r, 16);
+    out->data_len = 16;
+  }
+  return;
 }
 
 bool try_one_request(struct Conn *conn) {
@@ -256,17 +275,17 @@ bool try_one_request(struct Conn *conn) {
   // before these changes i had issues with v large values soooo it needs to be
   // stress tested also, appending entire resp.data to outgoing made no sense;
   // so i added a resp.len attr
-  resp.data = calloc(1024, 1); // calloc to set everything to 0
-  do_request(&command, &resp);
+  resp.data = calloc(k_max_len, 1); // calloc to set everything to 0
+  handle_command(&command, &resp);
   u32 resp_len = htonl(sizeof(resp.status) + resp.data_len);
   byte_ring_append_n(conn->outgoing, (const u8 *)&resp_len, 4);
   byte_ring_append_n(conn->outgoing, (const u8 *)&resp.status, 4);
   byte_ring_append_n(conn->outgoing, (const u8 *)resp.data, resp.data_len);
   free(resp.data);
-  if (command.type == COMMAND_TYPE_GET || command.type == COMMAND_TYPE_DELETE) {
+  if (command.type == COMMAND_TYPE_GET || command.type == COMMAND_TYPE_DELETE || resp.status == 2) {
     ptr_array_free(cmd_arr, true);
   }
-  if (command.type == COMMAND_TYPE_SET) {
+  if (command.type == COMMAND_TYPE_SET && resp.status != 2) {
     lstring_free(ptr_array_index(cmd_arr, 0));
     free(cmd_arr->data);
     free(cmd_arr);
@@ -280,7 +299,6 @@ bool try_one_request(struct Conn *conn) {
 }
 
 void handle_read(struct Conn *conn) {
-  /*printf("handle_Read\n");*/
   char rbuf[64 * 1024];
   int rv = read(conn->fd, rbuf, sizeof(rbuf));
   if (rv <= 0) {

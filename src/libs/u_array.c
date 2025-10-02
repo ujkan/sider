@@ -49,8 +49,8 @@ static void array_maybe_expand(FullArray *farray, uint64_t length) {
 void array_push_many(Array *array, const void *start, uint64_t n) {
   FullArray *farray = (FullArray *)array;
   array_maybe_expand(farray, farray->len + n);
-  memcpy(&farray->data[(farray->len) * farray->element_size],
-         start, n * farray->element_size);
+  memcpy(&farray->data[(farray->len) * farray->element_size], start,
+         n * farray->element_size);
   farray->len += n;
 }
 

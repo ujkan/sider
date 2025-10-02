@@ -48,7 +48,7 @@ static int32_t write_all(int fd, const char *buf, size_t n) {
     return 0;
 }
 
-const size_t k_max_msg = 4096;
+const size_t k_max_msg = 20000;
 
 static int32_t send_req(int fd, const std::vector<std::string> &cmd) {
     uint32_t len = 4;
@@ -56,6 +56,7 @@ static int32_t send_req(int fd, const std::vector<std::string> &cmd) {
         len += 4 + s.size();
     }
     if (len > k_max_msg) {
+        printf("MORE THAN MAX MSG\n");
         return -1;
     }
 
@@ -117,6 +118,7 @@ static int32_t read_res(int fd) {
         return -1;
     }
     memcpy(&rescode, &rbuf[4], 4);
+    printf("LENGTH: %d\n", len);
     printf("server says: [%u] %.*s\n", rescode, len - 4, &rbuf[8]);
     return 0;
 }
