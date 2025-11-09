@@ -3,13 +3,9 @@
 
 #include "lstr.h"
 
-typedef struct pair {
+typedef struct bucket_item {
   LString *key;
   int value;
-} pair;
-
-typedef struct bucket_item {
-  pair p;
   struct bucket_item *next;
 } bucket_item;
 

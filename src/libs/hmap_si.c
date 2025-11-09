@@ -32,7 +32,8 @@ int hash_fnv1(LString *key, int kssize) {
 
 bucket_item *bucket_append_entry(bucket_item *b, LString *key, int value) {
   bucket_item *new_item = malloc(sizeof(bucket_item));
-  new_item->p = (pair){.key = key, .value = value};
+  new_item->key = key;
+  new_item->value = value;
   new_item->next = NULL;
 
   bucket_item *curr = b;
@@ -48,7 +49,7 @@ bucket_item *bucket_append_entry(bucket_item *b, LString *key, int value) {
 
 bucket_item *bucket_search_key(bucket_item *b, LString *key) {
   for (bucket_item *curr = b; curr != NULL; curr = curr->next) {
-    if (lstring_compare((curr->p).key, key) == 0) {
+    if (lstring_compare(curr->key, key) == 0) {
       return curr;
     }
   }
@@ -62,13 +63,13 @@ int bucket_delete_key(bucket_item **b, LString *key) {
   bucket_item *prev = NULL;
   bucket_item *curr = *b;
   while (curr != NULL) {
-    if (lstring_compare(curr->p.key, key) == 0) {
+    if (lstring_compare(curr->key, key) == 0) {
       if (prev) {
         prev->next = curr->next;
       } else {
         *b = curr->next;
       }
-      lstring_free(curr->p.key);
+      lstring_free(curr->key);
       free(curr);
       return 1;
     }
@@ -93,7 +94,7 @@ void hashmap_si_rehash(hashmap_si *map) {
     while (curr != NULL) {
       prev = curr;
       curr = curr->next;
-      LString *key = (prev->p).key;
+      LString *key = prev->key;
       int index = (map->hashfn)(key, map->cap);
       prev->next = new_data[index];
       new_data[index] = prev;
@@ -117,7 +118,7 @@ void hashmap_si_print_keys_compact(hashmap_si *map) {
     }
     printf("%3d  ", i);
     for (; curr != NULL; curr = curr->next) {
-      printf("%.*s -> ", (int)curr->p.key->len, curr->p.key->data);
+      printf("%.*s -> ", (int)curr->key->len, curr->key->data);
     }
     printf("/\n");
   }
@@ -132,8 +133,8 @@ void hashmap_si_print_entries_compact(hashmap_si *map) {
     }
     printf("%3d  ", i);
     for (; curr != NULL; curr = curr->next) {
-      printf("(%.*s :: %d) -> ", (int)curr->p.key->len, curr->p.key->data,
-             (int)curr->p.value);
+      printf("(%.*s :: %d) -> ", (int)curr->key->len, curr->key->data,
+             (int)curr->value);
     }
     printf("/\n");
   }
@@ -145,7 +146,7 @@ void hashmap_si_print_keys(hashmap_si *map) {
     curr = map->data[i];
     PRINTLN("bucket %d", i);
     for (; curr != NULL; curr = curr->next) {
-      PRINTLN("  key=%s", curr->p.key);
+      PRINTLN("  key=%s", curr->key);
     }
   }
 }
@@ -162,9 +163,9 @@ int hashmap_si_upsert(hashmap_si *map, LString *key, int value) {
     data[index] = bucket_append_entry(data[index], key, value);
     map->size++;
   } else { // exist
-    lstring_free(search_item->p.key);
-    search_item->p.key = key;
-    search_item->p.value = value;
+    lstring_free(search_item->key);
+    search_item->key = key;
+    search_item->value = value;
   }
   /*hashmap_si_print_keys_compact(map);*/
   return index;
@@ -179,7 +180,7 @@ int hashmap_si_get(hashmap_si *map, LString *key) {
     return NULL;
   } else {
     printf("FOUND!");
-    return search_item->p.value;
+    return search_item->value;
   }
 }
 
@@ -202,7 +203,7 @@ void hashmap_si_destroy(hashmap_si *map) {
     while (curr != NULL) {
       bucket_item *tmp = curr;
       curr = curr->next;
-      lstring_free(tmp->p.key);
+      lstring_free(tmp->key);
       free(tmp);
     }
   }
@@ -218,5 +219,5 @@ void hashmap_si_destroy(hashmap_si *map) {
 //   hashmap_si_upsert(&map, "1", "abc");
 //   hashmap_si_upsert(&map, "2", "xyz");
 //   hashmap_si_upsert(&map, "3", "abc");
-//   printf("%s\n", map.data[0]->p.value);
+//   printf("%s\n", map.data[0]->value);
 // }
