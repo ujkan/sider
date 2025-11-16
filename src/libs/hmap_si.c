@@ -4,7 +4,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 
-int hash(LString *key, int kssize) {
+int hash_si(LString *key, int kssize) {
   unsigned int h = 0;
   for (uint i = 0; i < key->len; i++) {
     h += (unsigned char)(key->data[i]);
@@ -12,7 +12,7 @@ int hash(LString *key, int kssize) {
   return h % kssize;
 }
 
-int hash_fnv1(LString *key, int kssize) {
+int hash_fnv1_si(LString *key, int kssize) {
   // FNV-1a hash algorithm constants
   const unsigned int FNV_PRIME = 16777619;
   const unsigned int FNV_OFFSET_BASIS = 2166136261;
@@ -30,13 +30,13 @@ int hash_fnv1(LString *key, int kssize) {
   return (int)(hash % kssize);
 }
 
-bucket_item *bucket_append_entry(bucket_item *b, LString *key, int value) {
-  bucket_item *new_item = malloc(sizeof(bucket_item));
+bucket_item_si *bucket_si_append_entry(bucket_item_si *b, LString *key, int value) {
+  bucket_item_si *new_item = malloc(sizeof(bucket_item_si));
   new_item->key = key;
   new_item->value = value;
   new_item->next = NULL;
 
-  bucket_item *curr = b;
+  bucket_item_si *curr = b;
   if (curr == NULL) {
     return new_item; // return new root
   }
@@ -47,8 +47,8 @@ bucket_item *bucket_append_entry(bucket_item *b, LString *key, int value) {
   return b; // return root
 }
 
-bucket_item *bucket_search_key(bucket_item *b, LString *key) {
-  for (bucket_item *curr = b; curr != NULL; curr = curr->next) {
+bucket_item_si *bucket_si_search_key(bucket_item_si *b, LString *key) {
+  for (bucket_item_si *curr = b; curr != NULL; curr = curr->next) {
     if (lstring_compare(curr->key, key) == 0) {
       return curr;
     }
@@ -56,12 +56,12 @@ bucket_item *bucket_search_key(bucket_item *b, LString *key) {
   return NULL;
 }
 
-int bucket_delete_key(bucket_item **b, LString *key) {
+int bucket_si_delete_key(bucket_item_si **b, LString *key) {
   if (b == NULL || *b == NULL) {
     return 0;
   }
-  bucket_item *prev = NULL;
-  bucket_item *curr = *b;
+  bucket_item_si *prev = NULL;
+  bucket_item_si *curr = *b;
   while (curr != NULL) {
     if (lstring_compare(curr->key, key) == 0) {
       if (prev) {
@@ -82,15 +82,15 @@ int bucket_delete_key(bucket_item **b, LString *key) {
 void hashmap_si_rehash(hashmap_si *map) {
   int old_cap = map->cap;
   map->cap *= 2;
-  bucket_item **new_data =
-      calloc(map->cap, sizeof(bucket_item *)); // sizeof correct here?
+  bucket_item_si **new_data =
+      calloc(map->cap, sizeof(bucket_item_si *)); // sizeof correct here?
   // when rehashing, can we break collisions? probably should try
-  bucket_item *curr;
+  bucket_item_si *curr;
   for (int i = 0; i < old_cap; i++) {
     curr = (map->data)[i];
     // for each entry in old bucket, PREPEND this entry to the bucket
     // in the new_data, but do not reallocate anything
-    bucket_item *prev;
+    bucket_item_si *prev;
     while (curr != NULL) {
       prev = curr;
       curr = curr->next;
@@ -110,7 +110,7 @@ void hashmap_si_rehash(hashmap_si *map) {
 }
 
 void hashmap_si_print_keys_compact(hashmap_si *map) {
-  bucket_item *curr;
+  bucket_item_si *curr;
   for (int i = 0; i < map->cap; i++) {
     curr = map->data[i];
     if (curr == NULL) {
@@ -125,7 +125,7 @@ void hashmap_si_print_keys_compact(hashmap_si *map) {
 }
 
 void hashmap_si_print_entries_compact(hashmap_si *map) {
-  bucket_item *curr;
+  bucket_item_si *curr;
   for (int i = 0; i < map->cap; i++) {
     curr = map->data[i];
     if (curr == NULL) {
@@ -141,7 +141,7 @@ void hashmap_si_print_entries_compact(hashmap_si *map) {
 }
 
 void hashmap_si_print_keys(hashmap_si *map) {
-  bucket_item *curr;
+  bucket_item_si *curr;
   for (int i = 0; i < map->cap; i++) {
     curr = map->data[i];
     PRINTLN("bucket %d", i);
@@ -155,12 +155,12 @@ int hashmap_si_upsert(hashmap_si *map, LString *key, int value) {
   if (map->size >= map->cap) {
     hashmap_si_rehash(map);
   }
-  bucket_item **data = map->data;
+  bucket_item_si **data = map->data;
 
   int index = (map->hashfn)(key, map->cap);
-  bucket_item *search_item = bucket_search_key(data[index], key);
+  bucket_item_si *search_item = bucket_si_search_key(data[index], key);
   if (search_item == NULL) { // no exist, insert
-    data[index] = bucket_append_entry(data[index], key, value);
+    data[index] = bucket_si_append_entry(data[index], key, value);
     map->size++;
   } else { // exist
     lstring_free(search_item->key);
@@ -171,10 +171,27 @@ int hashmap_si_upsert(hashmap_si *map, LString *key, int value) {
   return index;
 }
 
+int hashmap_si_insert(hashmap_si *map, LString *key, int value) {
+  if (map->size >= map->cap) {
+    hashmap_si_rehash(map);
+  }
+  bucket_item_si **data = map->data;
+
+  int index = (map->hashfn)(key, map->cap);
+  bucket_item_si *search_item = bucket_si_search_key(data[index], key);
+  if (search_item == NULL) { // no exist, insert
+    data[index] = bucket_si_append_entry(data[index], key, value);
+    map->size++;
+    return index;
+  }
+  lstring_free(key); // ownership transferred here, so i can free!
+  return -1; // key already exists
+}
+
 int hashmap_si_get(hashmap_si *map, LString *key) {
   int index = (map->hashfn)(key, map->cap);
-  bucket_item *bkt = map->data[index];
-  bucket_item *search_item = bucket_search_key(bkt, key);
+  bucket_item_si *bkt = map->data[index];
+  bucket_item_si *search_item = bucket_si_search_key(bkt, key);
   if (search_item == NULL) {
     printf(" -------- X XXXXXXXX                X - NOT FOUND!");
     return NULL;
@@ -186,7 +203,7 @@ int hashmap_si_get(hashmap_si *map, LString *key) {
 
 int hashmap_si_delete(hashmap_si *map, LString *key) {
   int index = (map->hashfn)(key, map->cap);
-  int ret = bucket_delete_key(&map->data[index], key);
+  int ret = bucket_si_delete_key(&map->data[index], key);
   return ret;
 }
 
@@ -194,14 +211,14 @@ void hashmap_si_init(hashmap_si *map, int init_cap) {
   map->cap = init_cap;
   map->size = 0;
   map->data = calloc((map->cap), sizeof(map->data));
-  map->hashfn = hash_fnv1;
+  map->hashfn = hash_fnv1_si;
 }
 
 void hashmap_si_destroy(hashmap_si *map) {
   for (int i = 0; i < map->cap; i++) {
-    bucket_item *curr = map->data[i];
+    bucket_item_si *curr = map->data[i];
     while (curr != NULL) {
-      bucket_item *tmp = curr;
+      bucket_item_si *tmp = curr;
       curr = curr->next;
       lstring_free(tmp->key);
       free(tmp);
