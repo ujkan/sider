@@ -36,7 +36,7 @@ PERL_PACK_SCRIPT='
     
     # Pack the binary data and print it to standard output
     print pack(
-        "Q< V a* V V a* V Q<",
+        "V v a* v v a* v V",
         $total_payload_len,  # Preamble Length (8 bytes)
         $key_len,            # Key Length (Start) (4 bytes)
         $key,                # Key Data
