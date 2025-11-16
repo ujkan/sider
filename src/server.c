@@ -331,135 +331,135 @@ void handle_write(struct Conn *conn) {
   }
 }
 
-int main(void) {
-  // socket()
-  int fd = socket(AF_INET, SOCK_STREAM, 0);
-  if (fd < 0) {
-    die("socket()");
-  }
-  int val = 1;
-  setsockopt(fd, SOL_SOCKET, SO_REUSEADDR, &val, sizeof(val));
-
-  // bind()
-  struct sockaddr_in addr = {0};
-  addr.sin_addr.s_addr = htonl(INADDR_ANY);
-  addr.sin_port = htons(PORT);
-  addr.sin_family = AF_INET;
-
-  int rv = bind(fd, (const struct sockaddr *)&addr, sizeof(addr));
-  if (rv < 0) {
-    die("bind()");
-  }
-
-  // listen()
-  rv = listen(fd, SOMAXCONN);
-  if (rv < 0) {
-    die("listen()");
-  }
-
-  PtrArray *conns = ptr_array_new_full(10, conn_free);
-  ptr_array_set_length(conns, 10);
-  Array *pollfds = array_sized_new(10, sizeof(struct pollfd));
-  struct pollfd l_pollfd = {fd, POLLIN, 0};
-  array_push(pollfds, &l_pollfd);
-
-  data = malloc(sizeof(hashmap));
-  hashmap_init(data, 128);
-
-  for (;;) {
-    // TODO: 2 things need to be fixed
-    // 1. we cannot keep appending to pollfds in a loop even if no new
-    // connections incoming
-    // 2. as connections may change whether they "want_read", "want_write",
-    // and "want_close" in each event loop iteration, we need to edit the
-    // "events" even for those connections
-
-    // NOTE: conns is the primary state object. it both represents
-    // the actual comms (via the in/out buffers) and the read/write/error
-    // state of the connection
-
-    // choose an "inefficient" approach
-    // clear the pollfds array each time and just rebuild it
-    // NOTE: set_size runs in O(n) (sets all to 0) but does not do any memmove
-    // TODO: alternatively keep a map but would have to find a map where
-    // the "map.getValues()" struct is a simple pointer to struct pollfd and not
-    // some other type, since that's what "poll()" admits
-    array_set_length(pollfds, 1);
-
-    // prepare connections for polling
-    for (uint i = 0; i < conns->len; i++) {
-      struct Conn *conn = (struct Conn *)ptr_array_index(conns, i);
-      if (conn) {
-        struct pollfd p = {0};
-        p.fd = conn->fd;
-        p.events |= (conn->want_read ? POLLIN : 0);
-        p.events |= (conn->want_write ? POLLOUT : 0);
-        p.events |= (conn->want_close ? POLLERR : 0);
-        // NOTE: push is a macro for append_vals with &p (ptr to p)
-        // yet this doesn't mean that the *pointer* value is stored, rather
-        // GLib memcpy's the values of the struct at that address, and it knows
-        // how much to read because of element_size during initialization
-        array_push(pollfds, &p);
-      }
-    }
-
-    // call poll & respond to its events
-    poll((struct pollfd *)pollfds->data, pollfds->len, -1);
-    // 2 types of fds being polled:
-    // - listening socket
-    // - conn sockets
-
-    // if listening socket revents = READ/POLLIN
-    // means a socket is trying to connect (aka "can accept")
-    // ==> add connection to conns list
-    l_pollfd = array_index(pollfds, struct pollfd, 0);
-    if (l_pollfd.revents) {
-      struct sockaddr_in client_addr = {0};
-      socklen_t client_addrlen = 0;
-      int connfd = accept(fd, (struct sockaddr *)&client_addr, &client_addrlen);
-      if (connfd < 0) {
-        msg("accept failed");
-      } else {
-        msg("accepted connection");
-      }
-      printf("at fd:%d / address: %d.%d.%d.%d:%u\n",           //
-             connfd,                                           //
-             (ntohl(addr.sin_addr.s_addr & 0xff000000)) >> 24, //
-             (ntohl(addr.sin_addr.s_addr & 0x00ff0000)) >> 16, //
-             (ntohl(addr.sin_addr.s_addr & 0x0000ff00)) >> 8,  //
-             (ntohl(addr.sin_addr.s_addr & 0x000000ff)),       //
-             ntohs(addr.sin_port));
-      struct Conn *conn = conn_init(connfd);
-      conn->want_read = true;
-
-      ptr_array_set(conns, conn->fd, conn);
-    }
-
-    // if conn socket revents
-    // then handle depending on POLLIN, POLLOUT, POLLERR
-    for (uint i = 1; i < pollfds->len; i++) {
-      struct pollfd pollfd = array_index(pollfds, struct pollfd, i);
-      short ready = pollfd.revents;
-
-      // NOTE: we index the conns array with the fd
-      struct Conn *conn = (struct Conn *)ptr_array_index(
-          conns, pollfd.fd); // value at arr[fd], a ptr to Conn
-
-      if (ready & POLLIN) {
-        handle_read(conn);
-      }
-      if (ready & POLLOUT) {
-        handle_write(conn);
-      }
-      if ((ready & POLLERR) || conn->want_close) {
-        int connfd = conn->fd;
-        close(connfd);
-        // NOTE: set also frees the entry it replaces
-        // so no need to free it explicitly
-        ptr_array_set(conns, connfd, NULL);
-      }
-    }
-  }
-
-  return 0;
-}
+// int main(void) {
+//   // socket()
+//   int fd = socket(AF_INET, SOCK_STREAM, 0);
+//   if (fd < 0) {
+//     die("socket()");
+//   }
+//   int val = 1;
+//   setsockopt(fd, SOL_SOCKET, SO_REUSEADDR, &val, sizeof(val));
+//
+//   // bind()
+//   struct sockaddr_in addr = {0};
+//   addr.sin_addr.s_addr = htonl(INADDR_ANY);
+//   addr.sin_port = htons(PORT);
+//   addr.sin_family = AF_INET;
+//
+//   int rv = bind(fd, (const struct sockaddr *)&addr, sizeof(addr));
+//   if (rv < 0) {
+//     die("bind()");
+//   }
+//
+//   // listen()
+//   rv = listen(fd, SOMAXCONN);
+//   if (rv < 0) {
+//     die("listen()");
+//   }
+//
+//   PtrArray *conns = ptr_array_new_full(10, conn_free);
+//   ptr_array_set_length(conns, 10);
+//   Array *pollfds = array_sized_new(10, sizeof(struct pollfd));
+//   struct pollfd l_pollfd = {fd, POLLIN, 0};
+//   array_push(pollfds, &l_pollfd);
+//
+//   data = malloc(sizeof(hashmap));
+//   hashmap_init(data, 128);
+//
+//   for (;;) {
+//     // TODO: 2 things need to be fixed
+//     // 1. we cannot keep appending to pollfds in a loop even if no new
+//     // connections incoming
+//     // 2. as connections may change whether they "want_read", "want_write",
+//     // and "want_close" in each event loop iteration, we need to edit the
+//     // "events" even for those connections
+//
+//     // NOTE: conns is the primary state object. it both represents
+//     // the actual comms (via the in/out buffers) and the read/write/error
+//     // state of the connection
+//
+//     // choose an "inefficient" approach
+//     // clear the pollfds array each time and just rebuild it
+//     // NOTE: set_size runs in O(n) (sets all to 0) but does not do any memmove
+//     // TODO: alternatively keep a map but would have to find a map where
+//     // the "map.getValues()" struct is a simple pointer to struct pollfd and not
+//     // some other type, since that's what "poll()" admits
+//     array_set_length(pollfds, 1);
+//
+//     // prepare connections for polling
+//     for (uint i = 0; i < conns->len; i++) {
+//       struct Conn *conn = (struct Conn *)ptr_array_index(conns, i);
+//       if (conn) {
+//         struct pollfd p = {0};
+//         p.fd = conn->fd;
+//         p.events |= (conn->want_read ? POLLIN : 0);
+//         p.events |= (conn->want_write ? POLLOUT : 0);
+//         p.events |= (conn->want_close ? POLLERR : 0);
+//         // NOTE: push is a macro for append_vals with &p (ptr to p)
+//         // yet this doesn't mean that the *pointer* value is stored, rather
+//         // GLib memcpy's the values of the struct at that address, and it knows
+//         // how much to read because of element_size during initialization
+//         array_push(pollfds, &p);
+//       }
+//     }
+//
+//     // call poll & respond to its events
+//     poll((struct pollfd *)pollfds->data, pollfds->len, -1);
+//     // 2 types of fds being polled:
+//     // - listening socket
+//     // - conn sockets
+//
+//     // if listening socket revents = READ/POLLIN
+//     // means a socket is trying to connect (aka "can accept")
+//     // ==> add connection to conns list
+//     l_pollfd = array_index(pollfds, struct pollfd, 0);
+//     if (l_pollfd.revents) {
+//       struct sockaddr_in client_addr = {0};
+//       socklen_t client_addrlen = 0;
+//       int connfd = accept(fd, (struct sockaddr *)&client_addr, &client_addrlen);
+//       if (connfd < 0) {
+//         msg("accept failed");
+//       } else {
+//         msg("accepted connection");
+//       }
+//       printf("at fd:%d / address: %d.%d.%d.%d:%u\n",           //
+//              connfd,                                           //
+//              (ntohl(addr.sin_addr.s_addr & 0xff000000)) >> 24, //
+//              (ntohl(addr.sin_addr.s_addr & 0x00ff0000)) >> 16, //
+//              (ntohl(addr.sin_addr.s_addr & 0x0000ff00)) >> 8,  //
+//              (ntohl(addr.sin_addr.s_addr & 0x000000ff)),       //
+//              ntohs(addr.sin_port));
+//       struct Conn *conn = conn_init(connfd);
+//       conn->want_read = true;
+//
+//       ptr_array_set(conns, conn->fd, conn);
+//     }
+//
+//     // if conn socket revents
+//     // then handle depending on POLLIN, POLLOUT, POLLERR
+//     for (uint i = 1; i < pollfds->len; i++) {
+//       struct pollfd pollfd = array_index(pollfds, struct pollfd, i);
+//       short ready = pollfd.revents;
+//
+//       // NOTE: we index the conns array with the fd
+//       struct Conn *conn = (struct Conn *)ptr_array_index(
+//           conns, pollfd.fd); // value at arr[fd], a ptr to Conn
+//
+//       if (ready & POLLIN) {
+//         handle_read(conn);
+//       }
+//       if (ready & POLLOUT) {
+//         handle_write(conn);
+//       }
+//       if ((ready & POLLERR) || conn->want_close) {
+//         int connfd = conn->fd;
+//         close(connfd);
+//         // NOTE: set also frees the entry it replaces
+//         // so no need to free it explicitly
+//         ptr_array_set(conns, connfd, NULL);
+//       }
+//     }
+//   }
+//
+//   return 0;
+// }

@@ -24,7 +24,7 @@
 
 struct Segment {
   int fd;
-  hashmap_si offset_map;
+  hashmap_si *offset_map;
 } Segment;
 
 #define MAX_SEGMENTS 10
@@ -32,6 +32,10 @@ struct Segment {
 #define WRAP_INCR_N(i, n, cap)                                                 \
   ((i) = ((i) + (n) >= (cap) ? (((i) + (n)) - (cap)) : (i) + (n)))
 #define WRAP_INCR(i, cap) WRAP_INCR_N(i, 1, cap)
+
+const uint32_t kKeySize = 2;   // in bytes
+const uint32_t kValueSize = 2; // in bytes
+const uint32_t kEntrySize = 4; // in bytes
 
 struct SegmentList {
   struct Segment segments[MAX_SEGMENTS];
@@ -53,26 +57,27 @@ void serialize_kv_pair(LString *key, LString *value, char *response) {
   //          8]; // len of entire entry is 8 bytes, double-ended so can read
   //          both dirs
 
-  uint64_t length = (4 + key->len + 4) + (4 + value->len + 4);
-  memcpy(response, &length, 8);
-  response += 8;
+  uint32_t length =
+      (kKeySize + key->len + kKeySize) + (kValueSize + value->len + kValueSize);
+  memcpy(response, &length, sizeof(length));
+  response += sizeof(length);
 
   // WARN: dangerous to copy struct as it may copy padding
-  memcpy(response, &key->len, 4);
-  response += 4;
+  memcpy(response, &key->len, kKeySize);
+  response += kKeySize;
   memcpy(response, key->data, key->len);
   response += key->len;
-  memcpy(response, &key->len, 4);
-  response += 4;
+  memcpy(response, &key->len, kKeySize);
+  response += kKeySize;
 
-  memcpy(response, &value->len, 4);
-  response += 4;
+  memcpy(response, &value->len, kValueSize);
+  response += kValueSize;
   memcpy(response, value->data, value->len);
   response += value->len;
-  memcpy(response, &value->len, 4);
-  response += 4;
+  memcpy(response, &value->len, kValueSize);
+  response += kValueSize;
 
-  memcpy(response, &length, 8);
+  memcpy(response, &length, sizeof(length));
 }
 
 void deserialize_kv_pair(char **fbuf, LString *key, LString *value) {
@@ -80,11 +85,11 @@ void deserialize_kv_pair(char **fbuf, LString *key, LString *value) {
   //          8]; // len of entire entry is 8 bytes, double-ended so can read
   //          both dirs
 
-  uint64_t length;
+  uint32_t length;
   char *bufptr = *fbuf;
-  memcpy(&length, bufptr - 8, 8);
+  memcpy(&length, bufptr - sizeof(length), sizeof(length));
   // printf("bufptr: %p\n", bufptr);
-  bufptr -= 8;
+  bufptr -= sizeof(length);
   // printf("length: %ld\n", length);
   // if (bufptr < length) {
   //   return;
@@ -92,34 +97,34 @@ void deserialize_kv_pair(char **fbuf, LString *key, LString *value) {
 
   //          4B  ; lenB ; 4B
   // value = [len ; data ; len]
-  memcpy(&value->len, bufptr - 4, 4);
-  bufptr -= 4;
+  memcpy(&value->len, bufptr - kValueSize, kValueSize);
+  bufptr -= kValueSize;
   value->data = malloc(value->len);
   memcpy(value->data, bufptr - value->len, value->len);
   // printf("value->len: %d\n", value->len);
   bufptr -= value->len;
-  bufptr -= 4; // skip the frontal length
+  bufptr -= kValueSize; // skip the frontal length
 
-  memcpy(&key->len, bufptr - 4, 4);
-  bufptr -= 4;
+  memcpy(&key->len, bufptr - kKeySize, kKeySize);
+  bufptr -= kKeySize;
   key->data = malloc(key->len);
   memcpy(key->data, bufptr - key->len, key->len);
   // printf("key->len: %d\n", key->len);
   bufptr -= key->len;
-  bufptr -= 4; // skip the frontal length
+  bufptr -= kKeySize; // skip the frontal length
 
-  bufptr -= 8;
+  bufptr -= sizeof(length);
 
   *fbuf = bufptr;
 }
 
-int calc_entry_len(int key_len, int value_len) {
-  return 8 + (4 + key_len + 4) + (4 + value_len + 4) + 8;
+inline __attribute__((always_inline)) int calc_entry_len(int key_len,
+                                                         int value_len) {
+  return kEntrySize + (kKeySize + key_len + kKeySize) +
+         (kValueSize + value_len + kValueSize) + kEntrySize;
 }
 
 int fastest_append(int fd, const char *data, size_t data_len, int offset) {
-  // 1. Move file pointer to the end of the file
-
   // 2. Write the data
   if (pwrite(fd, data, data_len, offset) == (ssize_t)-1) {
     perror("write failed");
@@ -158,8 +163,8 @@ int8_t segment_compact(struct Segment *seg) {
   char *ptr = src + statbuf.st_size;
   printf("ptr: %p\n", ptr);
 
-  hashmap_si map = {0};
-  hashmap_si_init(&map, 1);
+  hashmap_si *map = malloc(sizeof(hashmap_si));
+  hashmap_si_init(map, 1);
 
   FILE *outf = fopen("seg.tmp", "w");
 
@@ -181,7 +186,7 @@ int8_t segment_compact(struct Segment *seg) {
     // printf("ptr: %p\n", ptr);
     // printf("key_len:%d\n", key.len);
     // printf("val_len:%d\n", key.len);
-    rc = hashmap_si_insert(&map, key, offset);
+    rc = hashmap_si_insert(map, key, offset);
     if (rc >= 0) {
       int entry_len = calc_entry_len(key->len, value->len);
       // if entry larger than batch, serialize into large enough buf and flush
@@ -216,7 +221,7 @@ int8_t segment_compact(struct Segment *seg) {
   }
 
   fastest_append(new_seg.fd, batch, batch_tail - batch, total_bytes_written);
-  hashmap_si_print_entries_compact(&map);
+  hashmap_si_print_entries_compact(map);
 
   // LString key2, value2 = {0};
   // deserialize_kv_pair(&ptr, &key2, &value2);
