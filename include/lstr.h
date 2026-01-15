@@ -11,13 +11,15 @@ typedef uint16_t u16;
 #ifndef u8
 typedef uint8_t u8;
 #endif
-typedef struct {
+typedef struct LString LString;
+extern const int kLStringLenSize;
+struct LString {
   u16 len;
   u8 *data;
-} LString;
+} ;
 
 void lstring_free(void *data);
-LString *lstring_create(int size);
+LString *lstring_create(u16 size);
 LString *lstring_create_from_buf(int size, const char *buf);
 int lstring_compare(const LString *a, const LString *b);
 

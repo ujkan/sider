@@ -7,7 +7,7 @@ void lstring_free(void *data) {
   free((void *)data);
 }
 
-LString *lstring_create(int size) {
+LString *lstring_create(u16 size) {
   LString *lstr = malloc(sizeof(LString));
   lstr->len = size;
   lstr->data = malloc(size);
