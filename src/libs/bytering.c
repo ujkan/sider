@@ -14,7 +14,7 @@
   ((i) = ((i) + (n) >= (cap) ? (((i) + (n)) - (cap)) : (i) + (n)))
 #define WRAP_INCR(i, cap) WRAP_INCR_N(i, 1, cap)
 
-#define SENTINEL UINT32_MAX;
+#define SENTINEL UINT32_MAX
 
 struct ByteRing *byte_ring_init(u32 cap) {
   struct ByteRing *br = malloc(sizeof(struct ByteRing));

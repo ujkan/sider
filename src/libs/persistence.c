@@ -26,6 +26,7 @@ struct DbFile {
   int fd;
   int flags;
   char filepath[256];
+  int size;
 } DbFile;
 
 struct Segment {
@@ -41,25 +42,24 @@ struct Segment {
 
 #define WRAP_DECR(i, cap) ((i) = ((i) - (1) >= (0) ? ((i) - (1)) : (cap) - (1)))
 
-#define END_MINUS_ONE(tail, cap) ((tail) == 0 ? ((cap) - 1) : (tail) - 1)
-
-const uint32_t kKeySize = 2;      // in bytes
-const uint32_t kValueSize = 2;    // in bytes
-const uint32_t kEntrySize = 4;    // in bytes
-const uint32_t kNumSegments = 10; // in bytes
+const uint32_t kKeySize = 2;                       // in bytes
+const uint32_t kValueSize = 2;                     // in bytes
+const uint32_t kEntrySize = 4;                     // in bytes
+const uint32_t kNumSegments = 10;                  // in bytes
+const uint32_t kMaxSegmentSize = 10 * 1024 * 1024; // 10 MiB
 
 struct SegmentList {
-  struct Segment segments[MAX_SEGMENTS];
-  uint32_t head;
-  uint32_t tail;
+  struct Segment inactive_segments[MAX_SEGMENTS];
+  struct Segment active_segment;
+  uint32_t size;
 } SegmentList;
 
 int8_t segment_list_add(struct SegmentList *seg_list, struct Segment *seg) {
-  if (seg_list->head == seg_list->tail) {
+  if (seg_list->size == MAX_SEGMENTS) {
     return -1; // full
   }
-  seg_list->segments[seg_list->tail] = *seg;
-  WRAP_INCR(seg_list->tail, MAX_SEGMENTS);
+  seg_list->inactive_segments[seg_list->size] = *seg;
+  seg_list->size += 1;
   return 0;
 }
 
@@ -151,7 +151,7 @@ int append_to_file(int fd, const char *data, size_t data_len, int offset) {
   return 0;
 }
 
-int8_t segment_compact_mrg(struct SegmentList sl) {
+int8_t segment_compact_mrg(struct SegmentList *sl) {
   // this has a few stages
   // 1. read from file
   // 2. do the compaction work
@@ -161,8 +161,8 @@ int8_t segment_compact_mrg(struct SegmentList sl) {
   char *segment_ptrs[kNumSegments];
 
   int maxdiff = 0;
-  for (int i = 0; i < kNumSegments && sl.segments[i].file.fd != 0; i++) {
-    struct Segment seg = sl.segments[i];
+  for (int i = 0; i < sl->size; i++) {
+    struct Segment seg = sl->inactive_segments[i];
     struct stat statbuf;
     if (fstat(seg.file.fd, &statbuf) < 0) {
       printf("fstat error");
@@ -200,11 +200,10 @@ int8_t segment_compact_mrg(struct SegmentList sl) {
   while (maxdiff > 0) {
     printf("maxdiff: %d\n", maxdiff);
     maxdiff = 0;
-    for (int i = END_MINUS_ONE(sl.tail, 10);
-         i + 1 != sl.head && segment_ptrs[i] - segment_srcs[i] > 0;
-         WRAP_DECR(i, 10)) {
-      printf("i=%d ; sl.head = %d\nptr = %p\nsrc = %p\n", i, sl.head,
-             segment_ptrs[i], segment_srcs[i]);
+    for (int i = sl->size - 1; i >= 0 && segment_ptrs[i] - segment_srcs[i] > 0;
+         i--) {
+      printf("i=%d ; ptr = %p\nsrc = %p\n", i, segment_ptrs[i],
+             segment_srcs[i]);
       LString *key = malloc(sizeof(LString));
       LString *value = malloc(sizeof(LString));
       char *ptr = segment_ptrs[i];
@@ -270,16 +269,64 @@ int8_t segment_compact_mrg(struct SegmentList sl) {
 
   // TODO: err handling
 
-  for (int i = END_MINUS_ONE(sl.tail, 10); i != sl.head; WRAP_DECR(i, 10)) {
-    struct Segment seg = sl.segments[i];
+  for (int i = sl->size - 1; i >= 0; i--) {
+    struct Segment seg = sl->inactive_segments[i];
     close(seg.file.fd);
-    // unlink(seg.file.filepath);
+    unlink(seg.file.filepath);
   }
-  sl.segments[END_MINUS_ONE(sl.tail, 10)].file.fd = fileno(outf);
-  sl.segments[END_MINUS_ONE(sl.tail, 10)].offset_map = map;
-  sl.segments[END_MINUS_ONE(sl.tail, 10)].file = new_segment_file;
+  sl->inactive_segments[0].file.fd = fileno(outf);
+  sl->inactive_segments[0].offset_map = map;
+  new_segment_file.size = total_bytes_written;
+  sl->inactive_segments[0].file = new_segment_file;
+  rename(new_segment_file.filepath,
+         "/home/usulejmani/development/_personal/build-your-own-redis/"
+         "seg_0.bin");
+  sl->size = 1;
 
   return 0;
+}
+
+// if < max_segments - 1
+// then sl_add and normal logic
+// if >= max_segments - 1
+// then sl_add + sl_compactmrg and normal logic
+
+void segment_list_new_active(struct SegmentList *seg_list) {
+  if (seg_list->size >= MAX_SEGMENTS) {
+    return; // error
+  }
+  segment_list_add(seg_list, &seg_list->active_segment);
+  if (seg_list->size == MAX_SEGMENTS) {
+    segment_compact_mrg(seg_list);
+  }
+
+  char fp[128];
+  sprintf(fp,
+          "/home/usulejmani/development/_personal/build-your-own-redis/"
+          "seg_%d.bin",
+          seg_list->size);
+  FILE *f = fopen(fp, "r+");
+  int fd = fileno(f);
+  struct DbFile dbFile = {.fd = fd, .flags = O_RDWR};
+  memcpy(dbFile.filepath, fp, 128);
+  hashmap_si *offset_map = malloc(sizeof(hashmap_si));
+  hashmap_si_init(offset_map, 128);
+  struct Segment active = {.file = dbFile, .offset_map = offset_map};
+  seg_list->active_segment = active;
+}
+
+void persist(struct SegmentList *sl, LString *key, LString *value) {
+  int entry_len = calc_entry_len(key->len, value->len);
+  if (sl->active_segment.file.size + entry_len > kMaxSegmentSize) {
+    segment_list_new_active(sl);
+  }
+
+  char buf[entry_len];
+  serialize_kv_pair(key, value, buf);
+
+  append_to_file(sl->active_segment.file.fd, buf, entry_len,
+                 sl->active_segment.file.size);
+  sl->active_segment.file.size += entry_len;
 }
 
 int main() {
@@ -300,7 +347,6 @@ int main() {
   printf("\n");
 
   struct SegmentList sl = {0};
-  sl.head = 0;
   for (int i = 1; i <= 3; i++) {
     char *fp = calloc(128, 1);
     sprintf(fp,
@@ -309,10 +355,16 @@ int main() {
             i);
     FILE *f = fopen(fp, "r+");
     int fd = fileno(f);
-    struct DbFile dbFile = {.fd = fd, .flags = O_RDWR, .filepath = "fp"};
+    struct DbFile dbFile = {.fd = fd, .flags = O_RDWR};
+    memcpy(dbFile.filepath, fp, 128);
     struct Segment s = {.file = dbFile, .offset_map = NULL};
-    sl.segments[i - 1] = s;
-    sl.tail = i - 1;
+    if (i != 3) {
+      sl.inactive_segments[i - 1] = s;
+      sl.size = i - 1;
+    } else {
+      sl.active_segment = s;
+    }
   }
-  segment_compact_mrg(sl);
+  segment_compact_mrg(&sl);
+  persist(&sl, &key, &value);
 }

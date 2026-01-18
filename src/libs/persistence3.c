@@ -64,15 +64,15 @@ int ceil_div(int a, int b) {
 }
 
 struct Store {
-    // serves requests, tier 1
-    SkipList *active_memtable;
-    // these also serve requests, tier 2
-    // TODO: make it a queue
-    // TODO: async thread dumps these to SSTable
-    // once dump is done, pop from here
-    Array *inactive_memtables;
-    // these also serve requests, tier 3
-    Array *sstables;
+  // serves requests, tier 1
+  SkipList *active_memtable;
+  // these also serve requests, tier 2
+  // TODO: make it a queue
+  // TODO: async thread dumps these to SSTable
+  // once dump is done, pop from here
+  Array *inactive_memtables;
+  // these also serve requests, tier 3
+  Array *sstables;
 };
 
 struct KeyOffsetPair {
@@ -86,6 +86,9 @@ size_t serialize_skip_list(SkipList *sl, char *buf) {
   u32 out_count;
   sl_s_get_data(sl, &keys, &values, &out_count);
 
+  if (out_count == 0)
+    return 0;
+
   int idx_struct_size = sizeof(struct KeyOffsetPair);
   Array *offset_sparse_index = array_sized_new(out_count, idx_struct_size);
 
@@ -94,7 +97,9 @@ size_t serialize_skip_list(SkipList *sl, char *buf) {
   // write the data and build the index
   for (u32 i = 0; i < out_count; i++) {
     if (i % batch_size == 0) {
-      array_push(offset_sparse_index, &(struct KeyOffsetPair){.key = keys[i], .offset = (u32)(buf - start)});
+      array_push(offset_sparse_index,
+                 &(struct KeyOffsetPair){.key = keys[i],
+                                         .offset = (u32)(buf - start)});
     }
     memcpy(buf, &kKeyTag, kTagSize);
     buf += kTagSize;
@@ -118,15 +123,17 @@ size_t serialize_skip_list(SkipList *sl, char *buf) {
   }
 
   // write the index
-  for (u32 i = 0; i < ceil_div(out_count, batch_size); i++) {
+  for (u32 i = 0; i < (out_count - 1) / batch_size + 1; i++) {
     printf("idx-write-loop iter %d\n", i);
 
-    LString **key = &(array_index(offset_sparse_index, struct KeyOffsetPair, i).key);
+    LString **key =
+        &(array_index(offset_sparse_index, struct KeyOffsetPair, i).key);
     printf("key=%p\n", key);
     memcpy(buf, (*key)->data, (*key)->len);
     buf += (*key)->len;
 
-    u32 *offset = &(array_index(offset_sparse_index, struct KeyOffsetPair, i).offset);
+    u32 *offset =
+        &(array_index(offset_sparse_index, struct KeyOffsetPair, i).offset);
     memcpy(buf, offset, sizeof(u32));
     buf += sizeof(u32);
   }

@@ -2,6 +2,7 @@
 #define SKIPLIST_STR_H
 
 #include "lstr.h"
+#include <stddef.h>
 
 typedef struct Node Node;
 typedef struct SkipList SkipList;
@@ -16,9 +17,11 @@ struct Node {
 struct SkipList {
   int num_levels;
   int num_elements;
+  size_t size_in_bytes;
   Node *head;
 };
 
+void sl_s_init(SkipList *sl);
 int sl_s_find(SkipList *sl, LString *key);
 int sl_s_insert(SkipList *sl, LString *key, LString * value);
 int sl_s_remove(SkipList *sl, LString *key);

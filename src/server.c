@@ -1,6 +1,7 @@
 #include <errno.h>
 #include <netinet/in.h>
 #include <stdbool.h>
+#include <stddef.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -13,6 +14,7 @@
 #include "bytering.h"
 #include "hmap.h"
 #include "lstr.h"
+#include "skiplist_str.h"
 #include "u_array.h"
 #include "u_ptr_array.h"
 
@@ -23,13 +25,34 @@
 // not malloc(len * sizeof(byte))?
 // - same question as above but for GArray
 
+
+struct Store {
+  // serves requests, tier 1
+  SkipList *active_memtable;
+  // these also serve requests, tier 2
+  // TODO: make it a queue
+  // TODO: async thread dumps these to SSTable
+  // once dump is done, pop from here
+  Array *inactive_memtables;
+  // these also serve requests, tier 3
+  Array *sstables;
+};
+
 static uint16_t PORT = 8085;
 static uint32_t k_max_len = 4096;
 static uint32_t k_min_args = 1;
 static uint32_t k_max_args = 3;
 static uint32_t k_max_key_len = 4;
 static uint32_t k_max_value_len = 4;
+static uint32_t kMemtableLimit = 1 * 1024 * 1024 * 1024;
 static struct hashmap *data;
+static struct Store *store;
+
+void store_init(struct Store *s) {
+    s = malloc(sizeof(struct Store));
+    sl_s_init(s->active_memtable);
+    s->inactive_memtables = array_sized_new(8, sizeof(struct SkipList));
+}
 
 static void die(const char *msg) {
   int err = errno;
@@ -132,6 +155,7 @@ int32_t parse_request(u8 *buf, u32 len, PtrArray *out) {
       return -1;
     }
     len = ntohl(len);
+    // TODO: lstring uses 16-bit now !!
     LString *s = lstring_create(len);
     curr += 4;
 
@@ -233,6 +257,12 @@ void handle_command(struct Command *cmd, struct Response *out) {
     }
     /*printf("setting; key=%s ; value=%s \n", key, value);*/
     hashmap_upsert(data, key, value);
+    sl_s_insert(store->active_memtable, key, value);
+    if (store->active_memtable->size_in_bytes > kMemtableLimit) {
+        array_push(store->inactive_memtables, store->active_memtable);
+        sl_s_init(store->active_memtable);
+
+    }
     out->status = 0;
     break;
   }

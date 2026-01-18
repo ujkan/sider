@@ -62,6 +62,21 @@ void pretty_print_skiplist(struct SkipList *list) {
   printf("-----------------------------------------\n");
 }
 
+
+void sl_s_init(SkipList *sl) {
+  sl = malloc(sizeof(SkipList));
+  Node *nmax = NULL;
+  Node *nmin = malloc(sizeof(Node) + 3 * sizeof(Node *));
+  nmin->key = lstring_create(0);
+  nmin->value = lstring_create(0);
+  nmin->level = 2;
+  nmin->next[0] = nmax;
+  nmin->next[1] = nmax;
+  nmin->next[2] = nmax;
+  sl->size_in_bytes = 0;
+  sl->num_elements = 0;
+}
+
 int sl_s_find(SkipList *sl, LString *key) {
   Node *prev = NULL;
   Node *curr = sl->head;
@@ -124,6 +139,7 @@ int sl_s_insert(SkipList *sl, LString *key, LString *value) {
   Node *new_node = malloc(sizeof(Node) + sum * sizeof(Node *));
   new_node->key = key;
   new_node->value = value;
+  sl->size_in_bytes += key->len + value->len;
   for (int i = 0; i < sum; i++) {
     new_node->next[i] = insertion_points[i]->next[i];
     insertion_points[i]->next[i] = new_node;
@@ -163,6 +179,7 @@ int sl_s_remove(SkipList *sl, LString *key) {
         }
         level_prev->next[i] = curr->next[i];
       }
+      sl->size_in_bytes += curr->key->len + curr->value->len;
       free(curr);
       return 0;
     }

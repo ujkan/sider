@@ -4,7 +4,7 @@ CXX = g++
 # It is recommended to use pkg-config to find the glib-2.0 flags:
 # CFLAGS += $(shell pkg-config --cflags glib-2.0)
 # LDFLAGS += $(shell pkg-config --libs glib-2.0)
-CFLAGS = -Wall -pedantic -g -Iinclude -I/usr/include/glib-2.0 -I/usr/lib/x86_64-linux-gnu/glib-2.0/include
+CFLAGS = -Wall -Wconversion -Wextra -pedantic -g -Iinclude -I/usr/include/glib-2.0 -I/usr/lib/x86_64-linux-gnu/glib-2.0/include
 LDFLAGS = -lglib-2.0
 
 RM = rm -f
