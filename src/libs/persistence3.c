@@ -37,6 +37,7 @@
 #include "bytering.h"
 #include "lstr.h"
 #include "lz4.h"
+#include "persistence.h"
 #include "skiplist_str.h"
 #include "u_array.h"
 #include <stddef.h>
@@ -80,11 +81,80 @@ struct KeyOffsetPair {
   u32 offset;
 };
 
-size_t serialize_skip_list(SkipList *sl, char *buf) {
+SSTable *dump_memtable_to_sst(SkipList *mt, LString *filepath) {
+  SSTable *sst = malloc(sizeof(SSTable *));
+  sst->filepath = filepath;
+
+  char *fp;
+  fp = lstring_to_cstr(filepath); // 0-terminated means can copy 127 chars max
+  FILE *fptr = fopen(fp, "a");
+  free(fp);
+
+  if (fptr == NULL) {
+      return NULL;
+  }
+  sst->fd = fileno(fptr);
+
   LString **keys;
   LString **values;
   u32 out_count;
-  sl_s_get_data(sl, &keys, &values, &out_count);
+  sl_s_get_data(mt, &keys, &values, &out_count);
+
+  if (out_count == 0) {
+    return 0;
+  }
+
+  // Record the starting position to calculate total bytes written at the end
+  long start_pos = ftell(fptr);
+
+  int idx_struct_size = sizeof(struct KeyOffsetPair);
+  Array *offset_sparse_index = array_sized_new(out_count, idx_struct_size);
+
+  u32 batch_size = 1 << 6;
+
+  // --- Write the data and build the index ---
+  for (u32 i = 0; i < out_count; i++) {
+    if (i % batch_size == 0) {
+      u32 current_offset = (u32)(ftell(fptr) - start_pos);
+      array_push(
+          offset_sparse_index,
+          &(struct KeyOffsetPair){.key = keys[i], .offset = current_offset});
+    }
+
+    fwrite(&kPairTag, kTagSize, 1, fptr);
+
+    fwrite(&keys[i]->len, kLStringLenSize, 1, fptr);
+    fwrite(keys[i]->data, 1, keys[i]->len, fptr);
+
+    fwrite(&values[i]->len, kLStringLenSize, 1, fptr);
+    fwrite(values[i]->data, 1, values[i]->len, fptr);
+  }
+
+  // --- Write the index ---
+  u32 index_count = (out_count - 1) / batch_size + 1;
+  for (u32 i = 0; i < index_count; i++) {
+    struct KeyOffsetPair *pair =
+        &array_index(offset_sparse_index, struct KeyOffsetPair, i);
+
+    fwrite(pair->key->data, 1, pair->key->len, fptr);
+
+    fwrite(&pair->offset, sizeof(u32), 1, fptr);
+  }
+
+  // Return total bytes written
+  sst->size = (u32)(ftell(fptr) - start_pos);
+fclose(fptr); // This is mandatory to see the data on disk
+  return sst;
+}
+
+// tombstone will be
+// [key] [len] [value]
+// "key" 0     """
+size_t serialize_skip_list(SkipList *mt, char *buf) {
+  LString **keys;
+  LString **values;
+  u32 out_count;
+  sl_s_get_data(mt, &keys, &values, &out_count);
 
   if (out_count == 0)
     return 0;
@@ -101,7 +171,7 @@ size_t serialize_skip_list(SkipList *sl, char *buf) {
                  &(struct KeyOffsetPair){.key = keys[i],
                                          .offset = (u32)(buf - start)});
     }
-    memcpy(buf, &kKeyTag, kTagSize);
+    memcpy(buf, &kPairTag, kTagSize);
     buf += kTagSize;
 
     memcpy(buf, &keys[i]->len, kLStringLenSize);
@@ -110,9 +180,6 @@ size_t serialize_skip_list(SkipList *sl, char *buf) {
     memcpy(buf, keys[i]->data, keys[i]->len);
     printf("DATA[i]->data: %s\n", keys[i]->data);
     buf += keys[i]->len;
-
-    memcpy(buf, &kValueTag, kTagSize);
-    buf += kTagSize;
 
     memcpy(buf, &values[i]->len, kLStringLenSize);
     buf += kLStringLenSize;
@@ -168,82 +235,83 @@ void debug_dump_buffer(const char *label, const void *data, size_t size) {
   printf("--------------------------------\n");
 }
 
-int main() {
-  srand(time(0));
 
-  // 1. Setup SkipList
-  SkipList *sl = malloc(sizeof(SkipList));
-  Node *nmin = malloc(sizeof(Node) + 3 * sizeof(Node *));
-  nmin->key = lstring_create(0);
-  nmin->level = 2;
-  for (int i = 0; i < 3; i++)
-    nmin->next[i] = NULL;
-  sl->head = nmin;
-  sl->num_levels = 3;
-
-  // 2. Insert Test Data (using distinct values to make them easy to find in
-  // hex)
-  printf("Populating Memtable...\n");
-  LString *key_a = lstring_create_from_buf(5, "KEYA1");
-  LString *value_a = lstring_create_from_buf(7, "value_1");
-  LString *value_b = lstring_create_from_buf(7, "value_Z");
-  sl_s_insert(sl, key_a, value_a);
-  sl_s_insert(sl, lstring_create_from_buf(5, "KEYZx"), value_b);
-
-  // 3. Serialize
-  char buffer[2048];
-  memset(buffer, 0, 2048);
-
-  // --- After inserting data into 'sl' ---
-
-  printf("\n=== Debugging sl_s_get_data Output ===\n");
-
-  LString **debug_keys;
-  LString **debug_values;
-  u32 count;
-
-  // Call the function we want to inspect
-  sl_s_get_data(sl, &debug_keys, &debug_values, &count);
-  printf("debug_keys[0]=%p\n", debug_keys[0]->data);
-  printf("debug_keys[0].len=%d\n", debug_keys[0]->len);
-  printf("debug_keys[1]=%p\n", debug_keys[1]->data);
-  printf("key_a=%p\n", key_a);
-
-  printf("Total elements returned: %u\n", count);
-  printf("%-5s | %-10s | %-20s | %s\n", "Idx", "Len", "Hex Content", "String");
-  printf("---------------------------------------------------------------\n");
-
-  for (u32 i = 0; i < count; i++) {
-    printf("[%u] ", i);
-
-    // Check for NULL data to prevent segfaults
-    if (debug_keys[i]->data == NULL) {
-      printf("DATA IS NULL\n");
-      continue;
-    }
-
-    // %.*s takes the length (debug_keys[i].len) as the first arg
-    // and the char pointer as the second.
-    printf("Len: %-4u | Data: \"%.*s\" | Value: %.*s\n", debug_keys[i]->len,
-           (int)debug_keys[i]->len, debug_keys[i]->data, debug_values[i]->len,
-           debug_values[i]->data);
-  }
-
-  // Clean up the arrays allocated by sl_s_get_data
-  free(debug_keys);
-  free(debug_values);
-
-  printf("======================================\n\n");
-  size_t written = serialize_skip_list(sl, buffer);
-
-  // 4. Debug Output
-  if (written > 0) {
-    debug_dump_buffer("SSTable Sparse Index Serialized Data", buffer,
-                      (size_t)written);
-  } else {
-    printf("No data written (check if batch_size is skipping your small "
-           "dataset)\n");
-  }
-
-  return 0;
-}
+// int main() {
+//   srand(time(0));
+//
+//   // 1. Setup SkipList
+//   SkipList *sl = malloc(sizeof(SkipList));
+//   Node *nmin = malloc(sizeof(Node) + 3 * sizeof(Node *));
+//   nmin->key = lstring_create(0);
+//   nmin->level = 2;
+//   for (int i = 0; i < 3; i++)
+//     nmin->next[i] = NULL;
+//   sl->head = nmin;
+//   sl->num_levels = 3;
+//
+//   // 2. Insert Test Data (using distinct values to make them easy to find in
+//   // hex)
+//   printf("Populating Memtable...\n");
+//   LString *key_a = lstring_create_from_buf(5, "KEYA1");
+//   LString *value_a = lstring_create_from_buf(7, "value_1");
+//   LString *value_b = lstring_create_from_buf(7, "value_Z");
+//   sl_s_insert(sl, key_a, value_a);
+//   sl_s_insert(sl, lstring_create_from_buf(5, "KEYZx"), value_b);
+//
+//   // 3. Serialize
+//   char buffer[2048];
+//   memset(buffer, 0, 2048);
+//
+//   // --- After inserting data into 'sl' ---
+//
+//   printf("\n=== Debugging sl_s_get_data Output ===\n");
+//
+//   LString **debug_keys;
+//   LString **debug_values;
+//   u32 count;
+//
+//   // Call the function we want to inspect
+//   sl_s_get_data(sl, &debug_keys, &debug_values, &count);
+//   printf("debug_keys[0]=%p\n", debug_keys[0]->data);
+//   printf("debug_keys[0].len=%d\n", debug_keys[0]->len);
+//   printf("debug_keys[1]=%p\n", debug_keys[1]->data);
+//   printf("key_a=%p\n", key_a);
+//
+//   printf("Total elements returned: %u\n", count);
+//   printf("%-5s | %-10s | %-20s | %s\n", "Idx", "Len", "Hex Content", "String");
+//   printf("---------------------------------------------------------------\n");
+//
+//   for (u32 i = 0; i < count; i++) {
+//     printf("[%u] ", i);
+//
+//     // Check for NULL data to prevent segfaults
+//     if (debug_keys[i]->data == NULL) {
+//       printf("DATA IS NULL\n");
+//       continue;
+//     }
+//
+//     // %.*s takes the length (debug_keys[i].len) as the first arg
+//     // and the char pointer as the second.
+//     printf("Len: %-4u | Data: \"%.*s\" | Value: %.*s\n", debug_keys[i]->len,
+//            (int)debug_keys[i]->len, debug_keys[i]->data, debug_values[i]->len,
+//            debug_values[i]->data);
+//   }
+//
+//   // Clean up the arrays allocated by sl_s_get_data
+//   free(debug_keys);
+//   free(debug_values);
+//
+//   printf("======================================\n\n");
+//   size_t written = serialize_skip_list(sl, buffer);
+//
+//   // 4. Debug Output
+//   if (written > 0) {
+//     debug_dump_buffer("SSTable Sparse Index Serialized Data", buffer,
+//                       (size_t)written);
+//   } else {
+//     printf("No data written (check if batch_size is skipping your small "
+//            "dataset)\n");
+//   }
+//
+//   return 0;
+// }
