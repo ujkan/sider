@@ -1,5 +1,6 @@
 #include <errno.h>
 #include <netinet/in.h>
+#include <stdatomic.h>
 #include <stdbool.h>
 #include <stddef.h>
 #include <stdint.h>
@@ -11,12 +12,18 @@
 #include <sys/types.h>
 #include <unistd.h>
 
+#include <pthread.h>
+
 #include "bytering.h"
 #include "hmap.h"
 #include "lstr.h"
+#include "persistence.h"
 #include "skiplist_str.h"
 #include "u_array.h"
 #include "u_ptr_array.h"
+
+#define T SLQueue, SkipList *
+#include <stc/deque.h>
 
 // TODO: Questions Q?
 // - does GByteArray store pointers to bytes or the bytes directly?
@@ -25,33 +32,46 @@
 // not malloc(len * sizeof(byte))?
 // - same question as above but for GArray
 
+typedef struct {
+  SLQueue queue;
+  pthread_mutex_t lock;
+  pthread_cond_t condition;
+  bool running;
+} InactiveMemtables;
 
-struct Store {
+typedef struct {
   // serves requests, tier 1
   SkipList *active_memtable;
   // these also serve requests, tier 2
   // TODO: make it a queue
   // TODO: async thread dumps these to SSTable
   // once dump is done, pop from here
-  Array *inactive_memtables;
+  InactiveMemtables inactive_memtables;
   // these also serve requests, tier 3
   Array *sstables;
-};
+  atomic_int sstable_count;
+} Store;
 
 static uint16_t PORT = 8085;
 static uint32_t k_max_len = 4096;
 static uint32_t k_min_args = 1;
 static uint32_t k_max_args = 3;
-static uint32_t k_max_key_len = 4;
-static uint32_t k_max_value_len = 4;
-static uint32_t kMemtableLimit = 1 * 1024 * 1024 * 1024;
+static uint32_t k_max_key_len = 2 << 8;
+static uint32_t k_max_value_len = 2 << 8;
+static uint32_t kMemtableLimit = 1 * 1024;
 static struct hashmap *data;
-static struct Store *store;
+static Store *store;
 
-void store_init(struct Store *s) {
-    s = malloc(sizeof(struct Store));
-    sl_s_init(s->active_memtable);
-    s->inactive_memtables = array_sized_new(8, sizeof(struct SkipList));
+Store *store_init() {
+  Store *s = malloc(sizeof(Store));
+  s->active_memtable = sl_s_init();
+  s->inactive_memtables.queue = SLQueue_init();
+  pthread_mutex_init(&s->inactive_memtables.lock, NULL);
+  pthread_cond_init(&s->inactive_memtables.condition, NULL);
+  s->inactive_memtables.running = true;
+  s->sstables = array_sized_new(16, sizeof(SSTable));
+
+  return s;
 }
 
 static void die(const char *msg) {
@@ -221,12 +241,29 @@ void handle_command(struct Command *cmd, struct Response *out) {
       out->status = 2; // invalid request!
       break;
     }
-    value = hashmap_get(data, key);
+    // value = hashmap_get(data, key);
+    value = sl_s_find(store->active_memtable, key);
     if (value) {
       out->status = 0;
       memcpy(out->data, value->data, value->len);
       out->data_len = value->len;
     } else {
+      pthread_mutex_lock(&store->inactive_memtables.lock);
+      for (c_each(table, SLQueue, store->inactive_memtables.queue)) {
+        value = sl_s_find(*table.ref, key);
+        if (value) {
+          out->status = 0;
+          memcpy(out->data, value->data, value->len);
+          out->data_len = value->len;
+          return;
+        }
+      }
+      pthread_mutex_unlock(&store->inactive_memtables.lock);
+      int sstable_count = atomic_load(&store->sstable_count);
+      for (int i = 0; i < sstable_count; i++) {
+        SSTable sst = array_index(store->sstables, SSTable, i);
+
+      }
       out->status = 1; // not found
     }
     break;
@@ -256,12 +293,20 @@ void handle_command(struct Command *cmd, struct Response *out) {
       break;
     }
     /*printf("setting; key=%s ; value=%s \n", key, value);*/
-    hashmap_upsert(data, key, value);
+    // hashmap_upsert(data, key, value);
     sl_s_insert(store->active_memtable, key, value);
+    printf("store->active_memtable %p\n", store->active_memtable);
+    printf("SIZE_IN_BYTES: %zu ; limit : %d\n",
+           store->active_memtable->size_in_bytes, kMemtableLimit);
     if (store->active_memtable->size_in_bytes > kMemtableLimit) {
-        array_push(store->inactive_memtables, store->active_memtable);
-        sl_s_init(store->active_memtable);
+      pthread_mutex_lock(&store->inactive_memtables.lock);
+      SLQueue_push_back(&store->inactive_memtables.queue,
+                        store->active_memtable);
 
+      pthread_cond_signal(&store->inactive_memtables.condition);
+      pthread_mutex_unlock(&store->inactive_memtables.lock);
+      printf("ABOVE_LIMIT\n");
+      store->active_memtable = sl_s_init();
     }
     out->status = 0;
     break;
@@ -312,7 +357,8 @@ bool try_one_request(struct Conn *conn) {
   byte_ring_append_n(conn->outgoing, (const u8 *)&resp.status, 4);
   byte_ring_append_n(conn->outgoing, (const u8 *)resp.data, resp.data_len);
   free(resp.data);
-  if (command.type == COMMAND_TYPE_GET || command.type == COMMAND_TYPE_DELETE || resp.status == 2) {
+  if (command.type == COMMAND_TYPE_GET || command.type == COMMAND_TYPE_DELETE ||
+      resp.status == 2) {
     ptr_array_free(cmd_arr, true);
   }
   if (command.type == COMMAND_TYPE_SET && resp.status != 2) {
@@ -360,136 +406,184 @@ void handle_write(struct Conn *conn) {
     conn->want_write = false;
   }
 }
+void *dump_memtable_to_sstable(void *arg) {
+  InactiveMemtables *inactive_memtables = (InactiveMemtables *)arg;
 
-// int main(void) {
-//   // socket()
-//   int fd = socket(AF_INET, SOCK_STREAM, 0);
-//   if (fd < 0) {
-//     die("socket()");
-//   }
-//   int val = 1;
-//   setsockopt(fd, SOL_SOCKET, SO_REUSEADDR, &val, sizeof(val));
-//
-//   // bind()
-//   struct sockaddr_in addr = {0};
-//   addr.sin_addr.s_addr = htonl(INADDR_ANY);
-//   addr.sin_port = htons(PORT);
-//   addr.sin_family = AF_INET;
-//
-//   int rv = bind(fd, (const struct sockaddr *)&addr, sizeof(addr));
-//   if (rv < 0) {
-//     die("bind()");
-//   }
-//
-//   // listen()
-//   rv = listen(fd, SOMAXCONN);
-//   if (rv < 0) {
-//     die("listen()");
-//   }
-//
-//   PtrArray *conns = ptr_array_new_full(10, conn_free);
-//   ptr_array_set_length(conns, 10);
-//   Array *pollfds = array_sized_new(10, sizeof(struct pollfd));
-//   struct pollfd l_pollfd = {fd, POLLIN, 0};
-//   array_push(pollfds, &l_pollfd);
-//
-//   data = malloc(sizeof(hashmap));
-//   hashmap_init(data, 128);
-//
-//   for (;;) {
-//     // TODO: 2 things need to be fixed
-//     // 1. we cannot keep appending to pollfds in a loop even if no new
-//     // connections incoming
-//     // 2. as connections may change whether they "want_read", "want_write",
-//     // and "want_close" in each event loop iteration, we need to edit the
-//     // "events" even for those connections
-//
-//     // NOTE: conns is the primary state object. it both represents
-//     // the actual comms (via the in/out buffers) and the read/write/error
-//     // state of the connection
-//
-//     // choose an "inefficient" approach
-//     // clear the pollfds array each time and just rebuild it
-//     // NOTE: set_size runs in O(n) (sets all to 0) but does not do any memmove
-//     // TODO: alternatively keep a map but would have to find a map where
-//     // the "map.getValues()" struct is a simple pointer to struct pollfd and not
-//     // some other type, since that's what "poll()" admits
-//     array_set_length(pollfds, 1);
-//
-//     // prepare connections for polling
-//     for (uint i = 0; i < conns->len; i++) {
-//       struct Conn *conn = (struct Conn *)ptr_array_index(conns, i);
-//       if (conn) {
-//         struct pollfd p = {0};
-//         p.fd = conn->fd;
-//         p.events |= (conn->want_read ? POLLIN : 0);
-//         p.events |= (conn->want_write ? POLLOUT : 0);
-//         p.events |= (conn->want_close ? POLLERR : 0);
-//         // NOTE: push is a macro for append_vals with &p (ptr to p)
-//         // yet this doesn't mean that the *pointer* value is stored, rather
-//         // GLib memcpy's the values of the struct at that address, and it knows
-//         // how much to read because of element_size during initialization
-//         array_push(pollfds, &p);
-//       }
-//     }
-//
-//     // call poll & respond to its events
-//     poll((struct pollfd *)pollfds->data, pollfds->len, -1);
-//     // 2 types of fds being polled:
-//     // - listening socket
-//     // - conn sockets
-//
-//     // if listening socket revents = READ/POLLIN
-//     // means a socket is trying to connect (aka "can accept")
-//     // ==> add connection to conns list
-//     l_pollfd = array_index(pollfds, struct pollfd, 0);
-//     if (l_pollfd.revents) {
-//       struct sockaddr_in client_addr = {0};
-//       socklen_t client_addrlen = 0;
-//       int connfd = accept(fd, (struct sockaddr *)&client_addr, &client_addrlen);
-//       if (connfd < 0) {
-//         msg("accept failed");
-//       } else {
-//         msg("accepted connection");
-//       }
-//       printf("at fd:%d / address: %d.%d.%d.%d:%u\n",           //
-//              connfd,                                           //
-//              (ntohl(addr.sin_addr.s_addr & 0xff000000)) >> 24, //
-//              (ntohl(addr.sin_addr.s_addr & 0x00ff0000)) >> 16, //
-//              (ntohl(addr.sin_addr.s_addr & 0x0000ff00)) >> 8,  //
-//              (ntohl(addr.sin_addr.s_addr & 0x000000ff)),       //
-//              ntohs(addr.sin_port));
-//       struct Conn *conn = conn_init(connfd);
-//       conn->want_read = true;
-//
-//       ptr_array_set(conns, conn->fd, conn);
-//     }
-//
-//     // if conn socket revents
-//     // then handle depending on POLLIN, POLLOUT, POLLERR
-//     for (uint i = 1; i < pollfds->len; i++) {
-//       struct pollfd pollfd = array_index(pollfds, struct pollfd, i);
-//       short ready = pollfd.revents;
-//
-//       // NOTE: we index the conns array with the fd
-//       struct Conn *conn = (struct Conn *)ptr_array_index(
-//           conns, pollfd.fd); // value at arr[fd], a ptr to Conn
-//
-//       if (ready & POLLIN) {
-//         handle_read(conn);
-//       }
-//       if (ready & POLLOUT) {
-//         handle_write(conn);
-//       }
-//       if ((ready & POLLERR) || conn->want_close) {
-//         int connfd = conn->fd;
-//         close(connfd);
-//         // NOTE: set also frees the entry it replaces
-//         // so no need to free it explicitly
-//         ptr_array_set(conns, connfd, NULL);
-//       }
-//     }
-//   }
-//
-//   return 0;
-// }
+  while (1) {
+    pthread_mutex_lock(&inactive_memtables->lock);
+    while (SLQueue_is_empty(&inactive_memtables->queue) &&
+           inactive_memtables->running) {
+      pthread_cond_wait(&inactive_memtables->condition,
+                        &inactive_memtables->lock);
+    }
+    if (SLQueue_is_empty(&inactive_memtables->queue) &&
+        !inactive_memtables->running) {
+      pthread_mutex_unlock(&inactive_memtables->lock);
+      break;
+    }
+
+    printf("DUMPING MEMTABLE\n");
+
+    SkipList *mt = *SLQueue_front(&inactive_memtables->queue);
+    SLQueue_pop_front(&inactive_memtables->queue);
+
+    pthread_mutex_unlock(&inactive_memtables->lock);
+
+    // do work
+    char sst_filepath[128];
+    unsigned int file_id = atomic_fetch_add(&store->sstable_count, 1);
+    int len = snprintf(sst_filepath, 128, "%u.sst", file_id);
+    dump_memtable_to_sst(mt, lstring_create_from_buf(len, sst_filepath));
+
+    // sl_s_destroy(mt);
+    free(mt);
+  }
+
+  return NULL;
+}
+
+int main(void) {
+  store = store_init();
+
+  pthread_t worker_thread;
+  // pthread_create arguments:
+  // 1. Pointer to the thread variable
+  // 2. Attributes (NULL for default)
+  // 3. The function to run
+  // 4. The argument to pass to that function
+  if (pthread_create(&worker_thread, NULL, dump_memtable_to_sstable,
+                     (void *)&store->inactive_memtables) != 0) {
+    perror("Failed to create thread");
+    return 1;
+  }
+  // socket()
+  int fd = socket(AF_INET, SOCK_STREAM, 0);
+  if (fd < 0) {
+    die("socket()");
+  }
+  int val = 1;
+  setsockopt(fd, SOL_SOCKET, SO_REUSEADDR, &val, sizeof(val));
+
+  // bind()
+  struct sockaddr_in addr = {0};
+  addr.sin_addr.s_addr = htonl(INADDR_ANY);
+  addr.sin_port = htons(PORT);
+  addr.sin_family = AF_INET;
+
+  int rv = bind(fd, (const struct sockaddr *)&addr, sizeof(addr));
+  if (rv < 0) {
+    die("bind()");
+  }
+
+  // listen()
+  rv = listen(fd, SOMAXCONN);
+  if (rv < 0) {
+    die("listen()");
+  }
+
+  PtrArray *conns = ptr_array_new_full(10, conn_free);
+  ptr_array_set_length(conns, 10);
+  Array *pollfds = array_sized_new(10, sizeof(struct pollfd));
+  struct pollfd l_pollfd = {fd, POLLIN, 0};
+  array_push(pollfds, &l_pollfd);
+
+  data = malloc(sizeof(hashmap));
+  hashmap_init(data, 128);
+
+  for (;;) {
+    // TODO: 2 things need to be fixed
+    // 1. we cannot keep appending to pollfds in a loop even if no new
+    // connections incoming
+    // 2. as connections may change whether they "want_read", "want_write",
+    // and "want_close" in each event loop iteration, we need to edit the
+    // "events" even for those connections
+
+    // NOTE: conns is the primary state object. it both represents
+    // the actual comms (via the in/out buffers) and the read/write/error
+    // state of the connection
+
+    // choose an "inefficient" approach
+    // clear the pollfds array each time and just rebuild it
+    // NOTE: set_size runs in O(n) (sets all to 0) but does not do any memmove
+    // TODO: alternatively keep a map but would have to find a map where
+    // the "map.getValues()" struct is a simple pointer to struct pollfd and not
+    // some other type, since that's what "poll()" admits
+    array_set_length(pollfds, 1);
+
+    // prepare connections for polling
+    for (uint i = 0; i < conns->len; i++) {
+      struct Conn *conn = (struct Conn *)ptr_array_index(conns, i);
+      if (conn) {
+        struct pollfd p = {0};
+        p.fd = conn->fd;
+        p.events |= (conn->want_read ? POLLIN : 0);
+        p.events |= (conn->want_write ? POLLOUT : 0);
+        p.events |= (conn->want_close ? POLLERR : 0);
+        // NOTE: push is a macro for append_vals with &p (ptr to p)
+        // yet this doesn't mean that the *pointer* value is stored, rather
+        // GLib memcpy's the values of the struct at that address, and it knows
+        // how much to read because of element_size during initialization
+        array_push(pollfds, &p);
+      }
+    }
+
+    // call poll & respond to its events
+    poll((struct pollfd *)pollfds->data, pollfds->len, -1);
+    // 2 types of fds being polled:
+    // - listening socket
+    // - conn sockets
+
+    // if listening socket revents = READ/POLLIN
+    // means a socket is trying to connect (aka "can accept")
+    // ==> add connection to conns list
+    l_pollfd = array_index(pollfds, struct pollfd, 0);
+    if (l_pollfd.revents) {
+      struct sockaddr_in client_addr = {0};
+      socklen_t client_addrlen = 0;
+      int connfd = accept(fd, (struct sockaddr *)&client_addr, &client_addrlen);
+      if (connfd < 0) {
+        msg("accept failed");
+      } else {
+        msg("accepted connection");
+      }
+      printf("at fd:%d / address: %d.%d.%d.%d:%u\n",           //
+             connfd,                                           //
+             (ntohl(addr.sin_addr.s_addr & 0xff000000)) >> 24, //
+             (ntohl(addr.sin_addr.s_addr & 0x00ff0000)) >> 16, //
+             (ntohl(addr.sin_addr.s_addr & 0x0000ff00)) >> 8,  //
+             (ntohl(addr.sin_addr.s_addr & 0x000000ff)),       //
+             ntohs(addr.sin_port));
+      struct Conn *conn = conn_init(connfd);
+      conn->want_read = true;
+
+      ptr_array_set(conns, conn->fd, conn);
+    }
+
+    // if conn socket revents
+    // then handle depending on POLLIN, POLLOUT, POLLERR
+    for (uint i = 1; i < pollfds->len; i++) {
+      struct pollfd pollfd = array_index(pollfds, struct pollfd, i);
+      short ready = pollfd.revents;
+
+      // NOTE: we index the conns array with the fd
+      struct Conn *conn = (struct Conn *)ptr_array_index(
+          conns, pollfd.fd); // value at arr[fd], a ptr to Conn
+
+      if (ready & POLLIN) {
+        handle_read(conn);
+      }
+      if (ready & POLLOUT) {
+        handle_write(conn);
+      }
+      if ((ready & POLLERR) || conn->want_close) {
+        int connfd = conn->fd;
+        close(connfd);
+        // NOTE: set also frees the entry it replaces
+        // so no need to free it explicitly
+        ptr_array_set(conns, connfd, NULL);
+      }
+    }
+  }
+
+  return 0;
+}
