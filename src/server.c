@@ -262,7 +262,14 @@ void handle_command(struct Command *cmd, struct Response *out) {
       int sstable_count = atomic_load(&store->sstable_count);
       for (int i = 0; i < sstable_count; i++) {
         SSTable sst = array_index(store->sstables, SSTable, i);
-
+        printf("SEARCH_IN_SST\n");
+        value = search_in_sst(sst, key);
+        if (value) {
+          out->status = 0;
+          memcpy(out->data, value->data, value->len);
+          out->data_len = value->len;
+          return;
+        }
       }
       out->status = 1; // not found
     }
@@ -433,7 +440,9 @@ void *dump_memtable_to_sstable(void *arg) {
     char sst_filepath[128];
     unsigned int file_id = atomic_fetch_add(&store->sstable_count, 1);
     int len = snprintf(sst_filepath, 128, "%u.sst", file_id);
-    dump_memtable_to_sst(mt, lstring_create_from_buf(len, sst_filepath));
+    SSTable *sst = dump_memtable_to_sst(mt, lstring_create_from_buf(len, sst_filepath));
+
+    array_push(store->sstables, sst);
 
     // sl_s_destroy(mt);
     free(mt);
