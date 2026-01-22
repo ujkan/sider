@@ -62,27 +62,34 @@ void pretty_print_skiplist(struct SkipList *list) {
   printf("-----------------------------------------\n");
 }
 
+SkipList *sl_s_init() {
 
-void sl_s_init(SkipList *sl) {
-  sl = malloc(sizeof(SkipList));
+  SkipList *sl = malloc(sizeof(SkipList));
   Node *nmax = NULL;
   Node *nmin = malloc(sizeof(Node) + 3 * sizeof(Node *));
   nmin->key = lstring_create(0);
-  nmin->value = lstring_create(0);
   nmin->level = 2;
-  nmin->next[0] = nmax;
-  nmin->next[1] = nmax;
-  nmin->next[2] = nmax;
+  for (int i = 0; i < 3; i++)
+    nmin->next[i] = NULL;
+  sl->head = nmin;
+  sl->num_levels = 3;
   sl->size_in_bytes = 0;
   sl->num_elements = 0;
+  return sl;
 }
 
-int sl_s_find(SkipList *sl, LString *key) {
+LString *sl_s_find(SkipList *sl, LString *key) {
   Node *prev = NULL;
   Node *curr = sl->head;
   int level = curr->level;
 
   while (level >= 0) {
+
+    if (curr == NULL) {
+      curr = prev;
+      level--;
+      continue;
+    }
     if (lstring_compare(key, curr->key) > 0) {
       printf("L%d key(%.*s) > curr->key(%.*s)\n", level, key->len, key->data,
              curr->key->len, curr->key->data);
@@ -95,10 +102,10 @@ int sl_s_find(SkipList *sl, LString *key) {
       curr = prev;
       prev = curr;
     } else {
-      return 0;
+      return curr->value;
     }
   }
-  return 1;
+  return NULL;
 }
 
 int sl_s_insert(SkipList *sl, LString *key, LString *value) {
@@ -126,6 +133,9 @@ int sl_s_insert(SkipList *sl, LString *key, LString *value) {
       prev = curr;
       curr = curr->next[level];
     } else {
+      printf("EARLY RET!!\n");
+      printf("=== L%d key(%.*s) > curr->key(%.*s)\n", level, key->len,
+             key->data, curr->key->len, curr->key->data);
       return 1;
     }
   }
@@ -139,7 +149,8 @@ int sl_s_insert(SkipList *sl, LString *key, LString *value) {
   Node *new_node = malloc(sizeof(Node) + sum * sizeof(Node *));
   new_node->key = key;
   new_node->value = value;
-  sl->size_in_bytes += key->len + value->len;
+  printf("key->len = %d ;; value->len = %d\n", key->len, value->len);
+  sl->size_in_bytes += (key->len + value->len);
   for (int i = 0; i < sum; i++) {
     new_node->next[i] = insertion_points[i]->next[i];
     insertion_points[i]->next[i] = new_node;

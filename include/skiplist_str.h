@@ -21,11 +21,12 @@ struct SkipList {
   Node *head;
 };
 
-void sl_s_init(SkipList *sl);
-int sl_s_find(SkipList *sl, LString *key);
+SkipList *sl_s_init();
+LString *sl_s_find(SkipList *sl, LString *key);
 int sl_s_insert(SkipList *sl, LString *key, LString * value);
 int sl_s_remove(SkipList *sl, LString *key);
 int sl_s_get_data(SkipList *sl, LString ***keys, LString ***values, u32 *out_count);
+int sl_s_destroy(SkipList *sl);
 void pretty_print_skiplist(struct SkipList *list);
 
 #endif
