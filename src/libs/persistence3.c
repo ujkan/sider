@@ -40,6 +40,7 @@
 #include "persistence.h"
 #include "skiplist_str.h"
 #include "u_array.h"
+#include <pthread.h>
 #include <stddef.h>
 #include <stdint.h>
 #include <stdio.h>
@@ -56,7 +57,10 @@ u16 kIndexTag = 3;
 u16 kDataTag = 4;
 u16 kCompressedBlockTag = 5;
 
-static void free_char(char **ptr) { printf("FREEINGBUFFER\n");free(*ptr); }
+static void free_char(char **ptr) {
+  //   printf("FREEINGBUFFER\n");
+  free(*ptr);
+}
 
 struct Segment {
   int fd;
@@ -80,6 +84,8 @@ struct SSTPair {
 };
 
 SSTable *dump_memtable_to_sst(SkipList *mt, LString *filepath) {
+  unsigned long thread_id = pthread_self();
+
   SSTable *sst = malloc(sizeof(SSTable));
   sst->filepath = filepath;
 
@@ -103,7 +109,8 @@ SSTable *dump_memtable_to_sst(SkipList *mt, LString *filepath) {
     return 0;
   }
 
-  // Record the starting position to calculate total bytes written at the end
+  // Record the starting position to calculate total bytes written at the
+  // end
   long start_pos = ftell(fptr);
 
   int idx_struct_size = sizeof(struct KeyOffsetPair);
@@ -118,8 +125,8 @@ SSTable *dump_memtable_to_sst(SkipList *mt, LString *filepath) {
 
   Array *data_blocks = array_sized_new(
       batch_size,
-      sizeof(struct SSTPair)); // k_max_key_len + k_max_value_len (upper bound
-                               // for block)
+      sizeof(struct SSTPair)); // k_max_key_len + k_max_value_len (upper
+                               // bound for block)
   // --- Write the data and build the index ---
   for (u32 i = 0; i < out_count; i++) {
 
@@ -146,16 +153,9 @@ SSTable *dump_memtable_to_sst(SkipList *mt, LString *filepath) {
       void *compressed = malloc(LZ4_compressBound(data_len));
       int written = LZ4_compress_default(block_buf, compressed, data_len,
                                          LZ4_compressBound(data_len));
-      printf("->>> [i=%d] written: %d ; data_len: %d \n", i, written, data_len);
-      printf("->>> [i=%d] size(w): %lu ; size(dl): %lu \n", i, sizeof(written),
-             sizeof(data_len));
       fwrite(&written, 1, sizeof(written), fptr);
       fwrite(&data_len, 1, sizeof(data_len), fptr);
       fwrite(compressed, 1, written, fptr);
-      printf("->>> [i=%d] compressed: %02x %02x %02x %02x\n", i,
-             ((unsigned char *)compressed)[0], ((unsigned char *)compressed)[1],
-             ((unsigned char *)compressed)[2],
-             ((unsigned char *)compressed)[3]);
       free(block_buf);
       free(compressed);
       array_set_length(data_blocks, 0);
@@ -177,7 +177,7 @@ SSTable *dump_memtable_to_sst(SkipList *mt, LString *filepath) {
     array_push(data_blocks, &tmpdata);
     data_len +=
         kTagSize + kLStringLenSize + key->len + kLStringLenSize + value->len;
-    printf("DATA_LEN: %d\n", data_len);
+    //     printf("DATA_LEN: %d\n", data_len);
   }
 
   index_offset = ftell(fptr);
@@ -196,14 +196,20 @@ SSTable *dump_memtable_to_sst(SkipList *mt, LString *filepath) {
   }
 
   // write footer
-  printf("index_offset: %d\n", index_offset);
-  printf("index_size: %d\n", index_size);
+  //   printf("index_offset: %d\n", index_offset);
+  //   printf("index_size: %d\n", index_size);
   fwrite(&index_offset, sizeof(index_offset), 1, fptr);
   fwrite(&index_size, sizeof(index_size), 1, fptr);
 
   // Return total bytes written
   sst->size = (u32)(ftell(fptr) - start_pos);
+  // printf("[THREAD %lu] dump_memtable_to_sst: Successfully wrote %u "
+  //        "bytes to '%s', closing file\n",
+  //        thread_id, sst->size, fp);
   fclose(fptr); // This is mandatory to see the data on disk
+  // printf("[THREAD %lu] dump_memtable_to_sst: Returning SST with "
+  //        "filepath = '%s'\n ",
+  //        thread_id, sst->filepath->data);
   return sst;
 }
 
@@ -238,24 +244,24 @@ size_t serialize_skip_list(SkipList *mt, char *buf) {
     buf += kLStringLenSize;
 
     memcpy(buf, keys[i]->data, keys[i]->len);
-    printf("DATA[i]->data: %s\n", keys[i]->data);
+    //     printf("DATA[i]->data: %s\n", keys[i]->data);
     buf += keys[i]->len;
 
     memcpy(buf, &values[i]->len, kLStringLenSize);
     buf += kLStringLenSize;
 
     memcpy(buf, values[i]->data, values[i]->len);
-    printf("values[i]->data: %s\n", values[i]->data);
+    //     printf("values[i]->data: %s\n", values[i]->data);
     buf += values[i]->len;
   }
 
   // write the index
   for (u32 i = 0; i < (out_count - 1) / batch_size + 1; i++) {
-    printf("idx-write-loop iter %d\n", i);
+    //     printf("idx-write-loop iter %d\n", i);
 
     LString **key =
         &(array_index(offset_sparse_index, struct KeyOffsetPair, i).key);
-    printf("key=%p\n", key);
+    //     printf("key=%p\n", key);
     memcpy(buf, (*key)->data, (*key)->len);
     buf += (*key)->len;
 
@@ -364,32 +370,41 @@ LString *search_in_sst(SSTable sst, LString *key) {
       offset = array_index(offsets, u32, mid);
       break;
     } else if (cmp_val > 0) {
-      offset = mid;
+      offset = array_index(offsets, u32, mid);
       low = mid + 1;
     } else {
       high = mid - 1;
     }
   }
+  printf("Offset: %d\n", offset);
   if (offset == -1) {
-    offset = keys->len - 1;
+    offset = array_index(offsets, u32, keys->len - 1);
+    printf("Offset max: %d\n", offset);
   }
   // TODO: find nearest point here!!, do not set offset=-1 if not found
-  if (offset != -1) {
-    fseek(fptr, offset, SEEK_SET);
-    int block_len, uncompressed_len;
-    fread(&block_len, 1, sizeof(block_len), fptr);
-    fread(&uncompressed_len, 1, sizeof(uncompressed_len), fptr);
-    char *buf = malloc(block_len);
-    fread(buf, 1, block_len, fptr);
-    char *dst = malloc(uncompressed_len);
-    LZ4_decompress_safe(buf, dst, block_len, uncompressed_len);
-    char *cursor = dst;
-    // TODO: do linear search here
-    if (memcmp(cursor, &kPairTag, kTagSize) == 0) {
-      cursor += kTagSize;
-      u16 key_len;
-      memcpy(&(key_len), cursor, kLStringLenSize);
-      cursor += key_len + kLStringLenSize;
+  fseek(fptr, offset, SEEK_SET);
+  int block_len, uncompressed_len;
+  fread(&block_len, 1, sizeof(block_len), fptr);
+  fread(&uncompressed_len, 1, sizeof(uncompressed_len), fptr);
+  char *buf = malloc(block_len);
+  fread(buf, 1, block_len, fptr);
+  char *dst = malloc(uncompressed_len);
+  LZ4_decompress_safe(buf, dst, block_len, uncompressed_len);
+  char *cursor = dst;
+  // TODO: do linear search here
+  printf("Beginning linear search\n");
+  printf("Searching for key: %.*s\n", key->len, key->data);
+  while (memcmp(cursor, &kPairTag, kTagSize) == 0) {
+    cursor += kTagSize;
+    LString k;
+    memcpy(&(k.len), cursor, kLStringLenSize);
+    k.data = malloc(k.len);
+    cursor += kLStringLenSize;
+    memcpy(k.data, cursor, k.len);
+    cursor += k.len;
+    printf("Current key: %.*s\n", k.len, k.data);
+    if (lstring_compare(&k, key) == 0) {
+      printf("Found match...\n");
       LString *value = malloc(sizeof(LString));
       memcpy(&value->len, cursor, kLStringLenSize);
       cursor += kLStringLenSize;
@@ -397,11 +412,18 @@ LString *search_in_sst(SSTable sst, LString *key) {
       memcpy(value->data, cursor, value->len);
       free(buf);
       free(dst);
+      free(k.data);
       return value;
+    } else {
+      u16 value_len;
+      memcpy(&value_len, cursor, kLStringLenSize);
+      cursor += value_len + kLStringLenSize;
+      free(k.data);
+      continue;
     }
-    free(buf);
-    free(dst);
   }
+  free(buf);
+  free(dst);
   return NULL;
 }
 

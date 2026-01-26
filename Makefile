@@ -2,8 +2,8 @@ CC = gcc
 CXX = g++
 
 # Compiler flags
-CFLAGS = -I ./include -O0 -g
-CXXFLAGS = -I ./include -O0 -g
+CFLAGS = -I./include -I$(HOME)/.local/include -I./include/stc -I/usr/include/glib-2.0 -I/usr/lib/x86_64-linux-gnu/glib-2.0/include -Wall -Wextra -O0 -g
+CXXFLAGS = -I./include -I$(HOME)/.local/include -I./include/stc -I/usr/include/glib-2.0 -I/usr/lib/x86_64-linux-gnu/glib-2.0/include -Wall -Wextra -O0 -g
 
 # Linker flags
 LDFLAGS = -llz4
