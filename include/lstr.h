@@ -1,16 +1,6 @@
 #ifndef LSTR_H
 #define LSTR_H
-#include <stdint.h>
-
-#ifndef u32
-typedef uint32_t u32;
-#endif
-#ifndef u16
-typedef uint16_t u16;
-#endif
-#ifndef u8
-typedef uint8_t u8;
-#endif
+#include "types.h"
 typedef struct LString LString;
 extern const int kLStringLenSize;
 struct LString {
