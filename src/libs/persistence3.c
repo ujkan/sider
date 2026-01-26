@@ -77,11 +77,20 @@ struct KeyOffsetPair {
   u32 offset;
 };
 
+void KeyOffsetPair_free(void *ptr) {
+  lstring_free(((struct KeyOffsetPair *)ptr)->key);
+}
+
 struct SSTPair {
   u16 tag;
   LString key;
   LString value;
 };
+
+void SSTPair_free(void *ptr) {
+  free(((struct SSTPair *)ptr)->key.data);
+  free(((struct SSTPair *)ptr)->value.data);
+}
 
 SSTable *dump_memtable_to_sst(SkipList *mt, LString *filepath) {
   unsigned long thread_id = pthread_self();
@@ -106,6 +115,8 @@ SSTable *dump_memtable_to_sst(SkipList *mt, LString *filepath) {
   if (out_count == 0) {
     fclose(fptr);
     free(sst);
+    free(keys);
+    free(values);
     return 0;
   }
 
@@ -114,7 +125,8 @@ SSTable *dump_memtable_to_sst(SkipList *mt, LString *filepath) {
   long start_pos = ftell(fptr);
 
   int idx_struct_size = sizeof(struct KeyOffsetPair);
-  Array *offset_sparse_index = array_sized_new(out_count, idx_struct_size);
+  Array *offset_sparse_index =
+      array_new_full(out_count, idx_struct_size, KeyOffsetPair_free);
 
   u32 batch_size = 1 << 3;
 
@@ -123,10 +135,10 @@ SSTable *dump_memtable_to_sst(SkipList *mt, LString *filepath) {
   u32 kFooterSize = 4 + 4; // 4 bytes for size; 4 for offset
   int data_len = 0;
 
-  Array *data_blocks = array_sized_new(
-      batch_size,
-      sizeof(struct SSTPair)); // k_max_key_len + k_max_value_len (upper
-                               // bound for block)
+  Array *data_blocks =
+      array_new_full(batch_size, sizeof(struct SSTPair),
+                     SSTPair_free); // k_max_key_len + k_max_value_len (upper
+                                    // bound for block)
   // --- Write the data and build the index ---
   for (u32 i = 0; i < out_count; i++) {
 
@@ -210,6 +222,14 @@ SSTable *dump_memtable_to_sst(SkipList *mt, LString *filepath) {
   // printf("[THREAD %lu] dump_memtable_to_sst: Returning SST with "
   //        "filepath = '%s'\n ",
   //        thread_id, sst->filepath->data);
+  array_set_length(offset_sparse_index, 0);
+  free(offset_sparse_index->data);
+  free(offset_sparse_index);
+  array_set_length(data_blocks, 0);
+  free(data_blocks->data);
+  free(data_blocks);
+  free(keys);
+  free(values);
   return sst;
 }
 
@@ -358,6 +378,7 @@ LString *search_in_sst(SSTable sst, LString *key) {
   Array *offsets = array_sized_new(32, sizeof(u32));
 
   deserialize_index(index, index_size, keys, offsets);
+  free(index);
 
   int low = 0;
   int high = keys->len - 1;
@@ -413,6 +434,16 @@ LString *search_in_sst(SSTable sst, LString *key) {
       free(buf);
       free(dst);
       free(k.data);
+      for (u32 i = 0; i < keys->len; i++) {
+        free(array_index(keys, LString, i).data);
+      }
+      free(keys->data);
+      free(keys);
+      for (u32 i = 0; i < offsets->len; i++) {
+        free(array_index(offsets, LString, i).data);
+      }
+      free(offsets->data);
+      free(offsets);
       return value;
     } else {
       u16 value_len;
@@ -424,6 +455,16 @@ LString *search_in_sst(SSTable sst, LString *key) {
   }
   free(buf);
   free(dst);
+  for (u32 i = 0; i < keys->len; i++) {
+    free(array_index(keys, LString, i).data);
+  }
+  free(keys->data);
+  free(keys);
+  for (u32 i = 0; i < offsets->len; i++) {
+    free(array_index(offsets, LString, i).data);
+  }
+  free(offsets->data);
+  free(offsets);
   return NULL;
 }
 
