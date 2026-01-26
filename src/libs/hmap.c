@@ -4,7 +4,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 
-int hash(LString *key, int kssize) {
+u32 hash(LString *key, int kssize) {
   unsigned int h = 0;
   for (uint i = 0; i < key->len; i++) {
     h += (unsigned char)(key->data[i]);
@@ -12,7 +12,7 @@ int hash(LString *key, int kssize) {
   return h % kssize;
 }
 
-int hash_fnv1(LString *key, int kssize) {
+u32 hash_fnv1(LString *key, int kssize) {
   // FNV-1a hash algorithm constants
   const unsigned int FNV_PRIME = 16777619;
   const unsigned int FNV_OFFSET_BASIS = 2166136261;
@@ -27,7 +27,7 @@ int hash_fnv1(LString *key, int kssize) {
   }
 
   // Return the hash value within the key space
-  return (int)(hash % kssize);
+  return hash % kssize;
 }
 
 bucket_item *bucket_append_entry(bucket_item *b, LString *key, LString *value) {
@@ -55,7 +55,7 @@ bucket_item *bucket_search_key(bucket_item *b, LString *key) {
   return NULL;
 }
 
-int bucket_delete_key(bucket_item **b, LString *key) {
+i32 bucket_delete_key(bucket_item **b, LString *key) {
   if (b == NULL || *b == NULL) {
     return 0;
   }
@@ -95,7 +95,7 @@ void hashmap_rehash(hashmap *map) {
       prev = curr;
       curr = curr->next;
       LString *key = (prev->p).key;
-      int index = (map->hashfn)(key, map->cap);
+      u32 index = (map->hashfn)(key, map->cap);
       prev->next = new_data[index];
       new_data[index] = prev;
     }
@@ -151,13 +151,13 @@ void hashmap_print_keys(hashmap *map) {
   }
 }
 
-int hashmap_upsert(hashmap *map, LString *key, LString *value) {
+u32 hashmap_upsert(hashmap *map, LString *key, LString *value) {
   if (map->size >= map->cap) {
     hashmap_rehash(map);
   }
   bucket_item **data = map->data;
 
-  int index = (map->hashfn)(key, map->cap);
+  u32 index = (map->hashfn)(key, map->cap);
   bucket_item *search_item = bucket_search_key(data[index], key);
   if (search_item == NULL) { // no exist, insert
     data[index] = bucket_append_entry(data[index], key, value);
@@ -173,7 +173,7 @@ int hashmap_upsert(hashmap *map, LString *key, LString *value) {
 }
 
 LString *hashmap_get(hashmap *map, LString *key) {
-  int index = (map->hashfn)(key, map->cap);
+  u32 index = (map->hashfn)(key, map->cap);
   bucket_item *bkt = map->data[index];
   bucket_item *search_item = bucket_search_key(bkt, key);
   if (search_item == NULL) {
@@ -185,9 +185,9 @@ LString *hashmap_get(hashmap *map, LString *key) {
   }
 }
 
-int hashmap_delete(hashmap *map, LString *key) {
-  int index = (map->hashfn)(key, map->cap);
-  int ret = bucket_delete_key(&map->data[index], key);
+i32 hashmap_delete(hashmap *map, LString *key) {
+  u32 index = (map->hashfn)(key, map->cap);
+  i32 ret = bucket_delete_key(&map->data[index], key);
   return ret;
 }
 

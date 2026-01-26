@@ -26,12 +26,12 @@ LString *lstring_create_from_buf(int size, const char *buf) {
   return lstr;
 }
 
-int lstring_compare(const LString *a, const LString *b) {
+i32 lstring_compare(const LString *a, const LString *b) {
   u32 min_len = (a->len < b->len) ? a->len : b->len;
 
   // compare "common" part
   if (min_len > 0) {
-    int cmp = memcmp(a->data, b->data, min_len);
+    i32 cmp = memcmp(a->data, b->data, min_len);
     if (cmp != 0) { // differs in "common"
       return cmp;
     }

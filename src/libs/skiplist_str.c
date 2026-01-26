@@ -108,7 +108,7 @@ LString *sl_s_find(SkipList *sl, LString *key) {
   return NULL;
 }
 
-int sl_s_insert(SkipList *sl, LString *key, LString *value) {
+i32 sl_s_insert(SkipList *sl, LString *key, LString *value) {
   Node *insertion_points[sl->num_levels];
   Node *prev = NULL;
   Node *curr = sl->head;
@@ -159,7 +159,7 @@ int sl_s_insert(SkipList *sl, LString *key, LString *value) {
   return 0;
 }
 
-int sl_s_remove(SkipList *sl, LString *key) {
+i32 sl_s_remove(SkipList *sl, LString *key) {
   Node *prev = NULL;
   Node *curr = sl->head;
   int level = curr->level;
@@ -198,7 +198,7 @@ int sl_s_remove(SkipList *sl, LString *key) {
   return 1;
 }
 
-int sl_s_get_data(SkipList *sl, LString ***keys_out, LString ***values_out,
+i32 sl_s_get_data(SkipList *sl, LString ***keys_out, LString ***values_out,
                   u32 *out_count) {
   Node *curr = sl->head->next[0];
 
