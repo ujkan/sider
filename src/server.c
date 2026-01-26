@@ -21,6 +21,7 @@
 #include "skiplist_str.h"
 #include "u_array.h"
 #include "u_ptr_array.h"
+#include <dirent.h>
 
 #define T SLQueue, SkipList *
 #include <stc/deque.h>
@@ -56,11 +57,42 @@ static uint16_t PORT = 8085;
 static uint32_t k_max_len = 4096;
 static uint32_t k_min_args = 1;
 static uint32_t k_max_args = 3;
-static uint32_t k_max_key_len = 2 << 8;
-static uint32_t k_max_value_len = 2 << 8;
-static uint32_t kMemtableLimit = 1 * 1024;
+static uint32_t k_max_key_len = 2 << 30;
+static uint32_t k_max_value_len = 2 << 30;
+static uint32_t kMemtableLimit = 4 * 1024;
 static struct hashmap *data;
 static Store *store;
+
+int count_sst_files() {
+  DIR *dir;
+  struct dirent *entry;
+  int count = 0;
+  const char *suffix = ".sst";
+  size_t suffix_len = strlen(suffix);
+
+  // Open current directory (".")
+  dir = opendir(".");
+  if (dir == NULL) {
+    perror("Unable to open directory");
+    return -1;
+  }
+
+  // Iterate over every file/folder in the directory
+  while ((entry = readdir(dir)) != NULL) {
+    size_t name_len = strlen(entry->d_name);
+
+    // Check if filename is long enough to contain the suffix
+    if (name_len >= suffix_len) {
+      // Compare the end of the filename with our suffix
+      if (strcmp(entry->d_name + (name_len - suffix_len), suffix) == 0) {
+        count++;
+      }
+    }
+  }
+
+  closedir(dir);
+  return count;
+}
 
 Store *store_init() {
   Store *s = malloc(sizeof(Store));
@@ -70,7 +102,14 @@ Store *store_init() {
   pthread_cond_init(&s->inactive_memtables.condition, NULL);
   s->inactive_memtables.running = true;
   s->sstables = array_sized_new(16, sizeof(SSTable));
-
+  atomic_store(&s->sstable_count, count_sst_files());
+  for (int i = 0; i < atomic_load(&s->sstable_count); i++) {
+    SSTable sst = {0};
+    sst.filepath = lstring_create(4 + i / 10);
+    sprintf(sst.filepath->data, "%d.sst", i);
+    sst.size = 0;
+    array_push(s->sstables, &sst);
+  }
   return s;
 }
 
@@ -438,11 +477,14 @@ void *dump_memtable_to_sstable(void *arg) {
 
     // do work
     char sst_filepath[128];
-    unsigned int file_id = atomic_fetch_add(&store->sstable_count, 1);
+    unsigned int file_id = atomic_load(&store->sstable_count);
     int len = snprintf(sst_filepath, 128, "%u.sst", file_id);
-    SSTable *sst = dump_memtable_to_sst(mt, lstring_create_from_buf(len, sst_filepath));
-
-    array_push(store->sstables, sst);
+    SSTable *sst =
+        dump_memtable_to_sst(mt, lstring_create_from_buf(len, sst_filepath));
+    if (sst) {
+      atomic_fetch_add(&store->sstable_count, 1);
+      array_push(store->sstables, sst);
+    }
 
     // sl_s_destroy(mt);
     free(mt);
