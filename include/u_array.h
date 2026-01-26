@@ -1,6 +1,7 @@
 #ifndef ARRAY_H
 #define ARRAY_H
 
+#include "types.h"
 #include <stdbool.h>
 #include <stdint.h>
 #include <sys/types.h>
@@ -19,8 +20,8 @@ void       array_set        (Array *array, uint64_t index, void * item);
 void       array_free       (Array *array, bool free_seg);
 void       array_push       (Array *array, void * const element );
 void       array_push_many  (Array *array, const void *start, uint64_t n);
-int        array_copy_n     (Array *src, void *dest, uint64_t n);
-int        array_pop_first  (Array *array, void *ret_val);
-int        array_pop_last   (Array *array, void *ret_val);
+i32        array_copy_n     (Array *src, void *dest, uint64_t n);
+i32        array_pop_first  (Array *array, void *ret_val);
+i32        array_pop_last   (Array *array, void *ret_val);
 
 #endif // ARRAY_H

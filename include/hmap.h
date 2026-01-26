@@ -21,20 +21,20 @@ typedef struct hashmap {
   int (*hashfn)(LString *, int);
 } hashmap;
 
-int hash(LString *key, int kssize);
+u32 hash(LString *key, int kssize);
 
 // bucket fns
 bucket_item *bucket_append_entry(bucket_item *head, LString *key, LString *value);
 bucket_item *bucket_search_key(bucket_item *head, LString *key);
-int bucket_delete_key(bucket_item **b, LString *key);
+i32 bucket_delete_key(bucket_item **b, LString *key);
 
 // hashmap fns
 void hashmap_init(hashmap *map, int init_cap);
 void hashmap_destroy(hashmap *map);
 void hashmap_rehash(hashmap *map);
 
-int hashmap_upsert(hashmap *map, LString *key, LString *value);
-int hashmap_delete(hashmap *map, LString *key);
+u32 hashmap_upsert(hashmap *map, LString *key, LString *value);
+i32 hashmap_delete(hashmap *map, LString *key);
 LString *hashmap_get(hashmap *map, LString *key);
 
 void hashmap_print_keys_compact(hashmap *map);
