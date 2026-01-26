@@ -56,6 +56,8 @@ uint16_t kIndexTag = 3;
 uint16_t kDataTag = 4;
 uint16_t kCompressedBlockTag = 5;
 
+static void free_char(char **ptr) { printf("FREEINGBUFFER\n");free(*ptr); }
+
 struct Segment {
   int fd;
   char *filename;
@@ -71,14 +73,19 @@ struct KeyOffsetPair {
   u32 offset;
 };
 
+struct SSTPair {
+  u16 tag;
+  LString key;
+  LString value;
+};
+
 SSTable *dump_memtable_to_sst(SkipList *mt, LString *filepath) {
-  SSTable *sst = malloc(sizeof(SSTable *));
+  SSTable *sst = malloc(sizeof(SSTable));
   sst->filepath = filepath;
 
-  char *fp;
+  char *fp __attribute__((__cleanup__(free_char)));
   fp = lstring_to_cstr(filepath); // 0-terminated means can copy 127 chars max
   FILE *fptr = fopen(fp, "a");
-  free(fp);
 
   if (fptr == NULL) {
     return NULL;
@@ -91,6 +98,8 @@ SSTable *dump_memtable_to_sst(SkipList *mt, LString *filepath) {
   sl_s_get_data(mt, &keys, &values, &out_count);
 
   if (out_count == 0) {
+    fclose(fptr);
+    free(sst);
     return 0;
   }
 
@@ -105,23 +114,70 @@ SSTable *dump_memtable_to_sst(SkipList *mt, LString *filepath) {
   u32 index_size = 0;
   u32 index_offset = 0;
   u32 kFooterSize = 4 + 4; // 4 bytes for size; 4 for offset
+  int data_len = 0;
 
+  Array *data_blocks = array_sized_new(
+      batch_size,
+      sizeof(struct SSTPair)); // k_max_key_len + k_max_value_len (upper bound
+                               // for block)
   // --- Write the data and build the index ---
   for (u32 i = 0; i < out_count; i++) {
+
+    if (i > 0 && i % batch_size == 0) {
+      void *block_buf = malloc(data_len);
+      void *cursor = block_buf;
+      for (int j = 0; j < data_blocks->len; j++) {
+        struct SSTPair data = array_index(data_blocks, struct SSTPair, j);
+        memcpy(cursor, &data.tag, kTagSize);
+        cursor += kTagSize;
+        memcpy(cursor, &data.key.len, kLStringLenSize);
+        cursor += kLStringLenSize;
+        memcpy(cursor, data.key.data, data.key.len);
+        cursor += data.key.len;
+        memcpy(cursor, &data.value.len, kLStringLenSize);
+        cursor += kLStringLenSize;
+        memcpy(cursor, data.value.data, data.value.len);
+        cursor += data.value.len;
+        // fwrite(&kPairTag, kTagSize, 1, fptr);
+        // fwrite(&keys[prev]->len, kLStringLenSize, 1, fptr);
+        // fwrite(keys[prev]->data, 1, keys[prev]->len, fptr);
+      }
+
+      void *compressed = malloc(LZ4_compressBound(data_len));
+      int written = LZ4_compress_default(block_buf, compressed, data_len,
+                                         LZ4_compressBound(data_len));
+      printf("->>> [i=%d] written: %d ; data_len: %d \n", i, written, data_len);
+      printf("->>> [i=%d] size(w): %lu ; size(dl): %lu \n", i, sizeof(written),
+             sizeof(data_len));
+      fwrite(&written, 1, sizeof(written), fptr);
+      fwrite(&data_len, 1, sizeof(data_len), fptr);
+      fwrite(compressed, 1, written, fptr);
+      printf("->>> [i=%d] compressed: %02x %02x %02x %02x\n", i,
+             ((unsigned char *)compressed)[0], ((unsigned char *)compressed)[1],
+             ((unsigned char *)compressed)[2],
+             ((unsigned char *)compressed)[3]);
+      free(block_buf);
+      free(compressed);
+      array_set_length(data_blocks, 0);
+      data_len = 0;
+    }
+
     if (i % batch_size == 0) {
       u32 current_offset = (u32)(ftell(fptr) - start_pos);
       array_push(
           offset_sparse_index,
           &(struct KeyOffsetPair){.key = keys[i], .offset = current_offset});
     }
-
-    fwrite(&kPairTag, kTagSize, 1, fptr);
-
-    fwrite(&keys[i]->len, kLStringLenSize, 1, fptr);
-    fwrite(keys[i]->data, 1, keys[i]->len, fptr);
-
-    fwrite(&values[i]->len, kLStringLenSize, 1, fptr);
-    fwrite(values[i]->data, 1, values[i]->len, fptr);
+    LString *key = keys[i];
+    LString *value = values[i];
+    struct SSTPair tmpdata = {0};
+    tmpdata.tag = kPairTag;
+    tmpdata.key = *key;
+    tmpdata.value = *value;
+    array_push(data_blocks, &tmpdata);
+    data_len +=
+        kTagSize + kLStringLenSize + key->len + kLStringLenSize + value->len;
+    printf("DATA_LEN: %d\n", data_len);
   }
 
   index_offset = ftell(fptr);
@@ -273,7 +329,7 @@ void deserialize_index(char *index, int len, Array *keys_out,
 }
 
 LString *search_in_sst(SSTable sst, LString *key) {
-  char *fp;
+  char *fp __attribute__((__cleanup__(free_char)));
   fp = lstring_to_cstr(
       sst.filepath); // 0-terminated means can copy 127 chars max
   FILE *fptr = fopen(fp, "r");
@@ -308,25 +364,43 @@ LString *search_in_sst(SSTable sst, LString *key) {
       offset = array_index(offsets, u32, mid);
       break;
     } else if (cmp_val > 0) {
+      offset = mid;
       low = mid + 1;
     } else {
       high = mid - 1;
     }
   }
+  if (offset == -1) {
+    offset = keys->len - 1;
+  }
+  // TODO: find nearest point here!!, do not set offset=-1 if not found
   if (offset != -1) {
     fseek(fptr, offset, SEEK_SET);
-    char buf[8];
-    fread(buf, 1, kTagSize + kLStringLenSize, fptr);
-    if (memcmp(buf, &kPairTag, kTagSize) == 0) {
+    int block_len, uncompressed_len;
+    fread(&block_len, 1, sizeof(block_len), fptr);
+    fread(&uncompressed_len, 1, sizeof(uncompressed_len), fptr);
+    char *buf = malloc(block_len);
+    fread(buf, 1, block_len, fptr);
+    char *dst = malloc(uncompressed_len);
+    LZ4_decompress_safe(buf, dst, block_len, uncompressed_len);
+    char *cursor = dst;
+    // TODO: do linear search here
+    if (memcmp(cursor, &kPairTag, kTagSize) == 0) {
+      cursor += kTagSize;
       u16 key_len;
-      memcpy(&(key_len), buf + kTagSize, kLStringLenSize);
-      fseek(fptr, key_len, SEEK_CUR);
-      LString *value = malloc(sizeof(LString *));
-      fread(&value->len, 1, kLStringLenSize, fptr);
+      memcpy(&(key_len), cursor, kLStringLenSize);
+      cursor += key_len + kLStringLenSize;
+      LString *value = malloc(sizeof(LString));
+      memcpy(&value->len, cursor, kLStringLenSize);
+      cursor += kLStringLenSize;
       value->data = malloc(value->len);
-      fread(value->data, 1, value->len, fptr);
+      memcpy(value->data, cursor, value->len);
+      free(buf);
+      free(dst);
       return value;
     }
+    free(buf);
+    free(dst);
   }
   return NULL;
 }
