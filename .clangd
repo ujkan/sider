@@ -1,2 +1,7 @@
 CompileFlags:
-  Add: [-I./include, -I/usr/include/glib-2.0, -I/usr/lib/x86_64-linux-gnu/glib-2.0/include]
+  Add: [-I./include, -I/home/usulejmani/.local/include, -I./include/stc, -I/usr/include/glib-2.0, -I/usr/lib/x86_64-linux-gnu/glib-2.0/include, "-Xanalyzer", "-Wall", "-Wextra"]
+
+Diagnostics:
+  StaticCheck: Warnings  # Ensures clangd's internal static analysis is active
+  ClangTidy:
+    Add: [bugprone-*, misc-*, performance-*]
