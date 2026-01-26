@@ -19,6 +19,7 @@
 #include "lstr.h"
 #include "persistence.h"
 #include "skiplist_str.h"
+#include "types.h"
 #include "u_array.h"
 #include "u_ptr_array.h"
 #include <dirent.h>
@@ -53,13 +54,13 @@ typedef struct {
   atomic_int sstable_count;
 } Store;
 
-static uint16_t PORT = 8085;
-static uint32_t k_max_len = 4096;
-static uint32_t k_min_args = 1;
-static uint32_t k_max_args = 3;
-static uint32_t k_max_key_len = 2 << 30;
-static uint32_t k_max_value_len = 2 << 30;
-static uint32_t kMemtableLimit = 4 * 1024;
+static u16 PORT = 8085;
+static u32 k_max_len = 4096;
+static u32 k_min_args = 1;
+static u32 k_max_args = 3;
+static u32 k_max_key_len = 2 << 30;
+static u32 k_max_value_len = 2 << 30;
+static u32 kMemtableLimit = 4 * 1024;
 static struct hashmap *data;
 static Store *store;
 
@@ -192,7 +193,7 @@ struct Command {
 // the request is: "get hello"
 // nstr       len1       m1  len2       m2
 // 0x00000002 0x00000003 get 0x00000005 hello
-int32_t parse_request(u8 *buf, u32 len, PtrArray *out) {
+i32 parse_request(u8 *buf, u32 len, PtrArray *out) {
   u32 nstr;
   u8 *curr = buf;
   const u8 *end = buf + len;
@@ -370,7 +371,7 @@ bool try_one_request(struct Conn *conn) {
     msg("not enough data in incoming buffer");
     return false;
   }
-  uint32_t msg_len;
+  u32 msg_len;
   memcpy(&msg_len, conn->incoming->data, 4);
   msg_len = ntohl(msg_len);
   if (msg_len > k_max_len) {

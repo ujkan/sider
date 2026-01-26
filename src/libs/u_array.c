@@ -7,13 +7,13 @@
 
 typedef struct {
   void *data;
-  uint64_t len;
-  uint64_t cap;
-  uint64_t element_size;
+  u64 len;
+  u64 cap;
+  u64 element_size;
   void (*element_free_func)(void *);
 } FullArray;
 
-Array *array_sized_new(uint64_t reserved_size, uint64_t element_size) {
+Array *array_sized_new(u64 reserved_size, u64 element_size) {
   FullArray *farray = malloc(sizeof(FullArray));
   farray->data = malloc(reserved_size * element_size);
   farray->len = 0;
@@ -23,7 +23,7 @@ Array *array_sized_new(uint64_t reserved_size, uint64_t element_size) {
   return (Array *)farray;
 }
 
-void array_set(Array *array, uint64_t index, void *item) {
+void array_set(Array *array, u64 index, void *item) {
   FullArray *farray = (FullArray *)array;
   // unlikely
   if (index < 0 || index >= farray->len) {
@@ -33,7 +33,7 @@ void array_set(Array *array, uint64_t index, void *item) {
          farray->element_size);
 }
 
-static void array_maybe_expand(FullArray *farray, uint64_t length) {
+static void array_maybe_expand(FullArray *farray, u64 length) {
   if (length > farray->cap) {
     void *new_data = reallocarray(farray->data, MAX(length, farray->cap * 2),
                                   farray->element_size);
@@ -46,7 +46,7 @@ static void array_maybe_expand(FullArray *farray, uint64_t length) {
   }
 }
 
-void array_push_many(Array *array, const void *start, uint64_t n) {
+void array_push_many(Array *array, const void *start, u64 n) {
   FullArray *farray = (FullArray *)array;
   array_maybe_expand(farray, farray->len + n);
   memcpy(&farray->data[(farray->len) * farray->element_size], start,
@@ -58,13 +58,13 @@ void array_push(Array *array, void *const element) {
   array_push_many(array, element, 1);
 }
 
-void array_set_length(Array *array, uint64_t length) {
+void array_set_length(Array *array, u64 length) {
   FullArray *farray = (FullArray *)array;
   if (length == farray->len)
     return;
   if (length < farray->len) {
     if (farray->element_free_func) {
-      for (uint64_t i = length; i < farray->len; i++) {
+      for (u64 i = length; i < farray->len; i++) {
         farray->element_free_func(&farray->data[i * farray->element_size]);
         memset(&farray->data[i * farray->element_size], 0,
                farray->element_size);
@@ -72,7 +72,7 @@ void array_set_length(Array *array, uint64_t length) {
     }
   } else {
     array_maybe_expand(farray, length);
-    for (uint64_t i = farray->len; i < length; i++) {
+    for (u64 i = farray->len; i < length; i++) {
       memset(&farray->data[i * farray->element_size], 0, farray->element_size);
     }
   }

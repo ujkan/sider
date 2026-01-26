@@ -49,12 +49,12 @@
 #include <sys/stat.h>
 #include <time.h>
 const u32 kTagSize = 2; // bytes
-uint16_t kKeyTag = 0;
-uint16_t kValueTag = 1;
-uint16_t kPairTag = 2;
-uint16_t kIndexTag = 3;
-uint16_t kDataTag = 4;
-uint16_t kCompressedBlockTag = 5;
+u16 kKeyTag = 0;
+u16 kValueTag = 1;
+u16 kPairTag = 2;
+u16 kIndexTag = 3;
+u16 kDataTag = 4;
+u16 kCompressedBlockTag = 5;
 
 static void free_char(char **ptr) { printf("FREEINGBUFFER\n");free(*ptr); }
 

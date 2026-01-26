@@ -5,14 +5,14 @@
 
 typedef struct {
   void **data;
-  uint64_t len;
-  uint64_t cap;
+  u64 len;
+  u64 cap;
   void (*element_free_func)(void *);
 } FullPtrArray;
 
 #define MAX(a, b) ((a) > (b) ? (a) : (b))
 
-PtrArray *ptr_array_new_full(uint64_t reserved_size,
+PtrArray *ptr_array_new_full(u64 reserved_size,
                              void (*element_free_func)(void *)) {
 
   FullPtrArray *farray = malloc(sizeof(FullPtrArray));
@@ -25,11 +25,11 @@ PtrArray *ptr_array_new_full(uint64_t reserved_size,
   return (PtrArray *)farray;
 }
 
-PtrArray *ptr_array_sized_new(uint64_t reserved_size) {
+PtrArray *ptr_array_sized_new(u64 reserved_size) {
   return ptr_array_new_full(reserved_size, NULL);
 }
 
-static void ptr_array_maybe_expand(FullPtrArray *farray, uint64_t length) {
+static void ptr_array_maybe_expand(FullPtrArray *farray, u64 length) {
   if (length > farray->cap) {
     void *new_data = reallocarray(farray->data, MAX(length, farray->cap * 2),
                                   sizeof(void *));
@@ -52,7 +52,7 @@ void ptr_array_add(PtrArray *array, void *item) {
   return;
 }
 
-void ptr_array_set(PtrArray *array, uint64_t index, void *item) {
+void ptr_array_set(PtrArray *array, u64 index, void *item) {
   FullPtrArray *farray = (FullPtrArray *)array;
   if (index >= farray->len) {
     return;
@@ -68,7 +68,7 @@ void ptr_array_set(PtrArray *array, uint64_t index, void *item) {
 void ptr_array_free(PtrArray *array, bool free_seg) {
   FullPtrArray *farray = (FullPtrArray *)array;
   if (free_seg && farray->element_free_func) {
-    for (uint64_t i = 0; i < farray->len; i++) {
+    for (u64 i = 0; i < farray->len; i++) {
       farray->element_free_func(ptr_array_index(array, i));
     }
   }
@@ -103,20 +103,20 @@ void ptr_array_free(PtrArray *array, bool free_seg) {
 //  - data[len] to data[NEW-1] is init with 0
 //  - realloced
 
-void ptr_array_set_length(PtrArray *array, uint64_t length) {
+void ptr_array_set_length(PtrArray *array, u64 length) {
   FullPtrArray *farray = (FullPtrArray *)array;
   if (length == farray->len)
     return;
   if (length < farray->len) {
     if (farray->element_free_func) {
-      for (uint64_t i = length; i < farray->len; i++) {
+      for (u64 i = length; i < farray->len; i++) {
         farray->element_free_func(ptr_array_index(farray, i));
         ptr_array_index(farray, i) = 0;
       }
     }
   } else {
     ptr_array_maybe_expand(farray, length);
-    for (uint64_t i = farray->len; i < length; i++) {
+    for (u64 i = farray->len; i < length; i++) {
       ptr_array_index(farray, i) = 0;
     }
   }

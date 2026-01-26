@@ -1,6 +1,7 @@
 #ifndef VECTOR_H
 #define VECTOR_H
 
+#include "types.h"
 #include <stdlib.h>
 
 #define CHECK_BOUNDS(index, size)                                              \
@@ -13,11 +14,11 @@
 #define DEFINE_VECTOR(TYPE, COMPARE_FN)                                        \
   typedef struct vector_##TYPE {                                               \
     TYPE *data;                                                                \
-    int32_t size;                                                              \
-    int32_t cap;                                                               \
+    i32 size;                                                              \
+    i32 cap;                                                               \
   } vector_##TYPE;                                                             \
                                                                                \
-  void vector_##TYPE##_init(vector_##TYPE *v, int32_t cap) {                   \
+  void vector_##TYPE##_init(vector_##TYPE *v, i32 cap) {                   \
     v->data = malloc(sizeof(TYPE) * cap);                                      \
     v->size = 0;                                                               \
     v->cap = cap;                                                              \
@@ -87,16 +88,16 @@
     }                                                                          \
     return -1;                                                                 \
   }                                                                            \
-  void vector_##TYPE##_insert(vector_##TYPE *v, TYPE *value, uint32_t len) {   \
+  void vector_##TYPE##_insert(vector_##TYPE *v, TYPE *value, u32 len) {   \
     while (v->size + len >= v->cap) {                                          \
       v->cap *= 2;                                                             \
     }                                                                          \
     v->data = realloc(v->data, sizeof(TYPE) * v->cap);                         \
-    for (uint32_t i = 0; i < len; i++) {                                       \
+    for (u32 i = 0; i < len; i++) {                                       \
       v->data[v->size++] = value[i];                                           \
     }                                                                          \
   }                                                                            \
-  void vector_##TYPE##_remove_first_n(vector_##TYPE *v, uint32_t n) {          \
+  void vector_##TYPE##_remove_first_n(vector_##TYPE *v, u32 n) {          \
     if (n <= v->size) {                                                        \
       for (int i = n; i < v->size; i++) {                                      \
         v->data[i - n] = v->data[i];                                           \
