@@ -14,7 +14,7 @@ typedef struct hashmap_si {
   bucket_item_si **data; // dynamic array of buckets
   int size;
   int cap;
-  int (*hashfn)(LString *, int);
+  u32 (*hashfn)(LString *, int);
 } hashmap_si;
 
 u32 hash(LString *key, int kssize);
@@ -32,7 +32,7 @@ void hashmap_si_rehash(hashmap_si *map);
 i32 hashmap_si_insert(hashmap_si *map, LString *key, int value);
 u32 hashmap_si_upsert(hashmap_si *map, LString *key, int value);
 i32 hashmap_si_delete(hashmap_si *map, LString *key);
-i32 hashmap_si_get(hashmap_si *map, LString *key);
+i32 hashmap_si_get(hashmap_si *map, LString *key, i32 *out_value);
 
 void hashmap_si_print_keys_compact(hashmap_si *map);
 void hashmap_si_print_entries_compact(hashmap_si *map);

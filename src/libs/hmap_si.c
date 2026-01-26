@@ -188,16 +188,21 @@ i32 hashmap_si_insert(hashmap_si *map, LString *key, int value) {
   return -1; // key already exists
 }
 
-i32 hashmap_si_get(hashmap_si *map, LString *key) {
+i32 hashmap_si_get(hashmap_si *map, LString *key, i32 *out_value) {
+  if (out_value == NULL) {
+    return -1; // Invalid parameter
+  }
+  
   u32 index = (map->hashfn)(key, map->cap);
   bucket_item_si *bkt = map->data[index];
   bucket_item_si *search_item = bucket_si_search_key(bkt, key);
   if (search_item == NULL) {
     printf(" -------- X XXXXXXXX                X - NOT FOUND!");
-    return 0; // Return 0 instead of NULL for integer type
+    return -1; // Not found
   } else {
     printf("FOUND!");
-    return search_item->value;
+    *out_value = search_item->value;
+    return 0; // Success
   }
 }
 
