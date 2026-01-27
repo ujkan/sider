@@ -18,7 +18,7 @@ typedef struct hashmap {
   bucket_item **data; // dynamic array of buckets
   int size;
   int cap;
-  int (*hashfn)(LString *, int);
+  u32 (*hashfn)(LString *, int);
 } hashmap;
 
 u32 hash(LString *key, int kssize);

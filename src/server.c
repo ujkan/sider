@@ -267,10 +267,20 @@ void handle_command(struct Command *cmd, struct Response *out) {
   out->data_len = 0;
   out->status = 2;
   if (cmd->type == 'p') {
-    hashmap_print_entries_compact(data);
+    printf("------------------------------\n");
+    printf("Active skiplist\n");
+    pretty_print_skiplist(store->active_memtable);
+    printf("SSTables\n");
+    int sstable_count = atomic_load(&store->sstable_count);
+    for (int i = 0; i < sstable_count; i++) {
+        SSTable sst = array_index(store->sstables, SSTable, i);
+        printf("SSTable %d : filepath=%.*s : size=%d\n", i, sst.filepath->len, sst.filepath->data, sst.size);
+    }
+    printf("------------------------------\n");
+
+    // hashmap_print_entries_compact(data);
     return;
   }
-  /*printf("COMMAND ------------------ %s\n", command);*/
   switch (cmd->type) {
     LString *key;
     LString *value;
@@ -318,7 +328,6 @@ void handle_command(struct Command *cmd, struct Response *out) {
 
     key = cmd->data.key;
     int rv = hashmap_delete(data, key);
-    printf("DELETE\n");
     if (rv == 1) {
       out->status = 0; // deleted!
     } else {
@@ -339,7 +348,6 @@ void handle_command(struct Command *cmd, struct Response *out) {
       out->status = 2; // invalid request!
       break;
     }
-    /*printf("setting; key=%s ; value=%s \n", key, value);*/
     // hashmap_upsert(data, key, value);
     sl_s_insert(store->active_memtable, key, value);
     printf("store->active_memtable %p\n", store->active_memtable);
@@ -352,7 +360,6 @@ void handle_command(struct Command *cmd, struct Response *out) {
 
       pthread_cond_signal(&store->inactive_memtables.condition);
       pthread_mutex_unlock(&store->inactive_memtables.lock);
-      printf("ABOVE_LIMIT\n");
       store->active_memtable = sl_s_init();
     }
     out->status = 0;
@@ -440,7 +447,7 @@ void handle_read(struct Conn *conn) {
 
 void handle_write(struct Conn *conn) {
   int rv = write(conn->fd, conn->outgoing->data, conn->outgoing->size);
-  printf("replied to fd=%d\n", conn->fd);
+  //   printf("replied to fd=%d\n", conn->fd);
   if (rv <= 0) {
     //
     conn->want_close = true;
@@ -468,8 +475,6 @@ void *dump_memtable_to_sstable(void *arg) {
       pthread_mutex_unlock(&inactive_memtables->lock);
       break;
     }
-
-    printf("DUMPING MEMTABLE\n");
 
     SkipList *mt = *SLQueue_front(&inactive_memtables->queue);
     SLQueue_pop_front(&inactive_memtables->queue);

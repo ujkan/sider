@@ -34,7 +34,7 @@ static void ptr_array_maybe_expand(FullPtrArray *farray, u64 length) {
     void *new_data = reallocarray(farray->data, MAX(length, farray->cap * 2),
                                   sizeof(void *));
     if (!new_data) {
-      printf("ERROR: Could not reallocate ptr_array to length %ld\n", length);
+//       printf("ERROR: Could not reallocate ptr_array to length %ld\n", length);
       exit(1);
     }
     farray->data = new_data;

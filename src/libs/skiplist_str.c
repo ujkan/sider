@@ -8,7 +8,7 @@ const int kLStringLenSize = 2;
 
 void pretty_print_skiplist(struct SkipList *list) {
   if (!list || !list->head) {
-    printf("SkipList is empty.\n");
+    //     printf("SkipList is empty.\n");
     return;
   }
 
@@ -28,21 +28,23 @@ void pretty_print_skiplist(struct SkipList *list) {
     // Pointer for the current level (i) traversal
     struct Node *current_level_ptr = list->head->next[i];
 
-    // Pointer for the base level (0) traversal (used for column alignment)
+    // Pointer for the base level (0) traversal (used for column
+    // alignment)
     struct Node *level_0_ptr = list->head->next[0];
 
     // Traverse the entire list using the level 0 path for alignment
     while (level_0_ptr != NULL) {
 
-      // Check if the current column (defined by level_0_ptr->data) is present
-      // at level i
+      // Check if the current column (defined by level_0_ptr->data) is
+      // present at level i
       if (current_level_ptr != NULL &&
           lstring_compare(current_level_ptr->key, level_0_ptr->key) == 0) {
         // Node is present at this level: print the key
         printf(NODE_PRESENT_FORMAT, current_level_ptr->key->len,
                current_level_ptr->key->data);
 
-        // Advance the current level pointer to the next connected node at level
+        // Advance the current level pointer to the next connected node
+        // at level
         // i
         current_level_ptr = current_level_ptr->next[i];
       } else {
@@ -91,13 +93,15 @@ LString *sl_s_find(SkipList *sl, LString *key) {
       continue;
     }
     if (lstring_compare(key, curr->key) > 0) {
-      printf("L%d key(%.*s) > curr->key(%.*s)\n", level, key->len, key->data,
-             curr->key->len, curr->key->data);
+      //       printf("L%d key(%.*s) > curr->key(%.*s)\n", level, key->len,
+      //       key->data,
+      // curr->key->len, curr->key->data);
       prev = curr;
       curr = curr->next[level];
     } else if (lstring_compare(key, curr->key) < 0) {
-      printf("L%d key(%.*s) < curr->key(%.*s)\n", level, key->len, key->data,
-             curr->key->len, curr->key->data);
+      //       printf("L%d key(%.*s) < curr->key(%.*s)\n", level, key->len,
+      //       key->data,
+      // curr->key->len, curr->key->data);
       level--;
       curr = prev;
       prev = curr;
@@ -121,21 +125,23 @@ i32 sl_s_insert(SkipList *sl, LString *key, LString *value) {
       continue;
     }
     if (lstring_compare(key, curr->key) < 0) {
-      printf("L%d key(%.*s) < curr->key(%.*s)\n", level, key->len, key->data,
-             curr->key->len, curr->key->data);
+      //       printf("L%d key(%.*s) < curr->key(%.*s)\n", level, key->len,
+      //       key->data,
+      // curr->key->len, curr->key->data);
       insertion_points[level] = prev;
       curr = prev;
       level--;
     } else if (lstring_compare(key, curr->key) > 0) {
-      printf("L%d key(%.*s) > curr->key(%.*s)\n", level, key->len, key->data,
-             curr->key->len, curr->key->data);
+      //       printf("L%d key(%.*s) > curr->key(%.*s)\n", level, key->len,
+      //       key->data,
+      // curr->key->len, curr->key->data);
       insertion_points[level] = curr;
       prev = curr;
       curr = curr->next[level];
     } else {
-      printf("EARLY RET!!\n");
-      printf("=== L%d key(%.*s) > curr->key(%.*s)\n", level, key->len,
-             key->data, curr->key->len, curr->key->data);
+      //       printf("EARLY RET!!\n");
+      //       printf("=== L%d key(%.*s) > curr->key(%.*s)\n", level, key->len,
+      // key->data, curr->key->len, curr->key->data);
       return 1;
     }
   }
@@ -145,17 +151,17 @@ i32 sl_s_insert(SkipList *sl, LString *key, LString *value) {
       break;
     sum += 1;
   }
-  printf("SUM=%d\n", sum);
+  //   printf("SUM=%d\n", sum);
   Node *new_node = malloc(sizeof(Node) + sum * sizeof(Node *));
   new_node->key = key;
   new_node->value = value;
-  printf("key->len = %d ;; value->len = %d\n", key->len, value->len);
+  //   printf("key->len = %d ;; value->len = %d\n", key->len, value->len);
   sl->size_in_bytes += (key->len + value->len);
   for (int i = 0; i < sum; i++) {
     new_node->next[i] = insertion_points[i]->next[i];
     insertion_points[i]->next[i] = new_node;
   }
-  pretty_print_skiplist(sl);
+  // pretty_print_skiplist(sl);
   return 0;
 }
 
@@ -205,10 +211,10 @@ i32 sl_s_get_data(SkipList *sl, LString ***keys_out, LString ***values_out,
   *out_count = 0;
   while (curr) {
     curr = curr->next[0];
-    printf("-------> curr: %p\n", curr);
+    //     printf("-------> curr: %p\n", curr);
     (*out_count)++;
   }
-  printf("OUT_)COUNT=%d\n", *out_count);
+  //   printf("OUT_)COUNT=%d\n", *out_count);
 
   *keys_out = calloc(*out_count, sizeof(LString *));
   *values_out = calloc(*out_count, sizeof(u32 *));
@@ -217,7 +223,7 @@ i32 sl_s_get_data(SkipList *sl, LString ***keys_out, LString ***values_out,
   int i = 0;
   while (curr) {
     (*keys_out)[i] = curr->key;
-    printf("curr->data->len %d\n", curr->key->len);
+    //     printf("curr->data->len %d\n", curr->key->len);
     (*values_out)[i] = curr->value;
     curr = curr->next[0];
     i++;

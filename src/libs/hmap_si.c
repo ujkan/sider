@@ -30,7 +30,8 @@ u32 hash_fnv1_si(LString *key, int kssize) {
   return hash % kssize;
 }
 
-bucket_item_si *bucket_si_append_entry(bucket_item_si *b, LString *key, int value) {
+bucket_item_si *bucket_si_append_entry(bucket_item_si *b, LString *key,
+                                       int value) {
   bucket_item_si *new_item = malloc(sizeof(bucket_item_si));
   new_item->key = key;
   new_item->value = value;
@@ -116,11 +117,11 @@ void hashmap_si_print_keys_compact(hashmap_si *map) {
     if (curr == NULL) {
       continue;
     }
-    printf("%3d  ", i);
+//     printf("%3d  ", i);
     for (; curr != NULL; curr = curr->next) {
-      printf("%.*s -> ", (int)curr->key->len, curr->key->data);
+//       printf("%.*s -> ", (int)curr->key->len, curr->key->data);
     }
-    printf("/\n");
+//     printf("/\n");
   }
 }
 
@@ -185,22 +186,22 @@ i32 hashmap_si_insert(hashmap_si *map, LString *key, int value) {
     return (i32)index;
   }
   lstring_free(key); // ownership transferred here, so i can free!
-  return -1; // key already exists
+  return -1;         // key already exists
 }
 
 i32 hashmap_si_get(hashmap_si *map, LString *key, i32 *out_value) {
   if (out_value == NULL) {
     return -1; // Invalid parameter
   }
-  
+
   u32 index = (map->hashfn)(key, map->cap);
   bucket_item_si *bkt = map->data[index];
   bucket_item_si *search_item = bucket_si_search_key(bkt, key);
   if (search_item == NULL) {
-    printf(" -------- X XXXXXXXX                X - NOT FOUND!");
+//     printf(" -------- X XXXXXXXX                X - NOT FOUND!");
     return -1; // Not found
   } else {
-    printf("FOUND!");
+//     printf("FOUND!");
     *out_value = search_item->value;
     return 0; // Success
   }
@@ -235,11 +236,11 @@ void hashmap_si_destroy(hashmap_si *map) {
 // int main(void) {
 //   hashmap_si_si map;
 //   hashmap_si_init(&map);
-//   printf("%d\n", hash("1", 128));
-//   printf("%d\n", hash("2", 128));
-//   printf("%d\n", hash("3", 128));
+// printf("%d\n", hash("1", 128));
+// printf("%d\n", hash("2", 128));
+// printf("%d\n", hash("3", 128));
 //   hashmap_si_upsert(&map, "1", "abc");
 //   hashmap_si_upsert(&map, "2", "xyz");
 //   hashmap_si_upsert(&map, "3", "abc");
-//   printf("%s\n", map.data[0]->value);
+// printf("%s\n", map.data[0]->value);
 // }

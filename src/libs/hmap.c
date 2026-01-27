@@ -116,11 +116,11 @@ void hashmap_print_keys_compact(hashmap *map) {
     if (curr == NULL) {
       continue;
     }
-    printf("%3d  ", i);
+    // printf("%3d  ", i);
     for (; curr != NULL; curr = curr->next) {
-      printf("%.*s -> ", (int)curr->p.key->len, curr->p.key->data);
+      // printf("%.*s -> ", (int)curr->p.key->len, curr->p.key->data);
     }
-    printf("/\n");
+    // printf("/\n");
   }
 }
 
@@ -177,10 +177,10 @@ LString *hashmap_get(hashmap *map, LString *key) {
   bucket_item *bkt = map->data[index];
   bucket_item *search_item = bucket_search_key(bkt, key);
   if (search_item == NULL) {
-    printf(" -------- X XXXXXXXX                X - NOT FOUND!");
+    // printf(" -------- X XXXXXXXX                X - NOT FOUND!");
     return NULL;
   } else {
-    printf("FOUND!");
+    // printf("FOUND!");
     return search_item->p.value;
   }
 }
@@ -215,11 +215,11 @@ void hashmap_destroy(hashmap *map) {
 // int main(void) {
 //   hashmap map;
 //   hashmap_init(&map);
-//   printf("%d\n", hash("1", 128));
-//   printf("%d\n", hash("2", 128));
-//   printf("%d\n", hash("3", 128));
+// printf("%d\n", hash("1", 128));
+// printf("%d\n", hash("2", 128));
+// printf("%d\n", hash("3", 128));
 //   hashmap_upsert(&map, "1", "abc");
 //   hashmap_upsert(&map, "2", "xyz");
 //   hashmap_upsert(&map, "3", "abc");
-//   printf("%s\n", map.data[0]->p.value);
+// printf("%s\n", map.data[0]->p.value);
 // }
