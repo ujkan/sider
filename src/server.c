@@ -312,12 +312,12 @@ void handle_command(struct Command *cmd, struct Response *out) {
       int sstable_count = atomic_load(&store->sstable_count);
       for (int i = 0; i < sstable_count; i++) {
         SSTable sst = array_index(store->sstables, SSTable, i);
-        printf("SEARCH_IN_SST\n");
         value = search_in_sst(sst, key);
         if (value) {
           out->status = 0;
           memcpy(out->data, value->data, value->len);
           out->data_len = value->len;
+          lstring_free(value);
           return;
         }
       }
