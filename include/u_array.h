@@ -14,7 +14,7 @@ typedef struct {
 #define array_index(a,t,i)      (((t*) (void *) (a)->data) [(i)])
 /*Array*  array_new        (void);*/
 Array*  array_sized_new  (u64 reserved_size, u64 element_size);
-/*Array*  array_new_full   (u64 reserved_size, void (*element_free_func)(void *));*/
+Array*  array_new_full   (u64 reserved_size, u64 element_size, void (*element_free_func)(void *));
 void       array_set_length (Array *array, u64 length);
 void       array_set        (Array *array, u64 index, void * item);
 void       array_free       (Array *array, bool free_seg);

@@ -23,6 +23,17 @@ Array *array_sized_new(u64 reserved_size, u64 element_size) {
   return (Array *)farray;
 }
 
+Array *array_new_full(u64 reserved_size, u64 element_size,
+                      void (*element_free_func)(void *)) {
+  FullArray *farray = malloc(sizeof(FullArray));
+  farray->data = malloc(reserved_size * element_size);
+  farray->len = 0;
+  farray->cap = reserved_size;
+  farray->element_free_func = element_free_func;
+  farray->element_size = element_size;
+  return (Array *)farray;
+}
+
 void array_set(Array *array, u64 index, void *item) {
   FullArray *farray = (FullArray *)array;
   // unlikely
@@ -38,7 +49,8 @@ static void array_maybe_expand(FullArray *farray, u64 length) {
     void *new_data = reallocarray(farray->data, MAX(length, farray->cap * 2),
                                   farray->element_size);
     if (!new_data) {
-      printf("ERROR: Could not reallocate ptr_array to length %ld\n", length);
+      //       printf("ERROR: Could not reallocate ptr_array to length %ld\n",
+      //       length);
       exit(1);
     }
     farray->data = new_data;
