@@ -40,6 +40,7 @@
 #include "persistence.h"
 #include "skiplist_str.h"
 #include "u_array.h"
+#include <errno.h>
 #include <pthread.h>
 #include <stddef.h>
 #include <stdint.h>
@@ -57,9 +58,14 @@ u16 kIndexTag = 3;
 u16 kDataTag = 4;
 u16 kCompressedBlockTag = 5;
 
-static void free_char(char **ptr) {
+static void cleanup_char_buf(char **ptr) {
   //   printf("FREEINGBUFFER\n");
   free(*ptr);
+}
+
+static void cleanup_file(FILE **ptr) {
+  //   printf("FREEINGBUFFER\n");
+  fclose(*ptr);
 }
 
 struct Segment {
@@ -98,9 +104,10 @@ SSTable *dump_memtable_to_sst(SkipList *mt, LString *filepath) {
   SSTable *sst = malloc(sizeof(SSTable));
   sst->filepath = filepath;
 
-  char *fp __attribute__((__cleanup__(free_char)));
+  char *fp __attribute__((__cleanup__(cleanup_char_buf)));
   fp = lstring_to_cstr(filepath); // 0-terminated means can copy 127 chars max
-  FILE *fptr = fopen(fp, "a");
+  FILE *fptr __attribute__((__cleanup__(cleanup_file)));
+  fptr = fopen(fp, "a");
 
   if (fptr == NULL) {
     return NULL;
@@ -113,7 +120,6 @@ SSTable *dump_memtable_to_sst(SkipList *mt, LString *filepath) {
   sl_s_get_data(mt, &keys, &values, &out_count);
 
   if (out_count == 0) {
-    fclose(fptr);
     free(sst);
     free(keys);
     free(values);
@@ -125,8 +131,7 @@ SSTable *dump_memtable_to_sst(SkipList *mt, LString *filepath) {
   long start_pos = ftell(fptr);
 
   int idx_struct_size = sizeof(struct KeyOffsetPair);
-  Array *offset_sparse_index =
-      array_new_full(out_count, idx_struct_size, KeyOffsetPair_free);
+  Array *offset_sparse_index = array_sized_new(out_count, idx_struct_size);
 
   u32 batch_size = 1 << 3;
 
@@ -135,10 +140,10 @@ SSTable *dump_memtable_to_sst(SkipList *mt, LString *filepath) {
   u32 kFooterSize = 4 + 4; // 4 bytes for size; 4 for offset
   int data_len = 0;
 
-  Array *data_blocks =
-      array_new_full(batch_size, sizeof(struct SSTPair),
-                     SSTPair_free); // k_max_key_len + k_max_value_len (upper
-                                    // bound for block)
+  Array *data_blocks = array_sized_new(
+      batch_size,
+      sizeof(struct SSTPair)); // k_max_key_len + k_max_value_len (upper bound
+                               // for block)
   // --- Write the data and build the index ---
   for (u32 i = 0; i < out_count; i++) {
 
@@ -191,17 +196,51 @@ SSTable *dump_memtable_to_sst(SkipList *mt, LString *filepath) {
         kTagSize + kLStringLenSize + key->len + kLStringLenSize + value->len;
     //     printf("DATA_LEN: %d\n", data_len);
   }
+  void *block_buf = malloc(data_len);
+  void *cursor = block_buf;
+  for (int j = 0; j < data_blocks->len; j++) {
+    struct SSTPair data = array_index(data_blocks, struct SSTPair, j);
+    memcpy(cursor, &data.tag, kTagSize);
+    cursor += kTagSize;
+    memcpy(cursor, &data.key.len, kLStringLenSize);
+    cursor += kLStringLenSize;
+    memcpy(cursor, data.key.data, data.key.len);
+    cursor += data.key.len;
+    memcpy(cursor, &data.value.len, kLStringLenSize);
+    cursor += kLStringLenSize;
+    memcpy(cursor, data.value.data, data.value.len);
+    cursor += data.value.len;
+    // fwrite(&kPairTag, kTagSize, 1, fptr);
+    // fwrite(&keys[prev]->len, kLStringLenSize, 1, fptr);
+    // fwrite(keys[prev]->data, 1, keys[prev]->len, fptr);
+  }
+
+  void *compressed_block = malloc(LZ4_compressBound(data_len));
+  int compressed_block_size = LZ4_compress_default(
+      block_buf, compressed_block, data_len, LZ4_compressBound(data_len));
+  fwrite(&compressed_block_size, 1, sizeof(compressed_block_size), fptr);
+  fwrite(&data_len, 1, sizeof(data_len), fptr);
+  fwrite(compressed_block, 1, compressed_block_size, fptr);
+  free(block_buf);
+  free(compressed_block);
+  free(data_blocks->data);
+  free(data_blocks);
+  data_len = 0;
 
   index_offset = ftell(fptr);
 
   // --- Write the index ---
   u32 index_count = (out_count - 1) / batch_size + 1;
+  printf("Writing index...\n");
   for (u32 i = 0; i < index_count; i++) {
     struct KeyOffsetPair *pair =
         &array_index(offset_sparse_index, struct KeyOffsetPair, i);
 
+    printf("index[%d]: key len=%d data=%.*s offset=%d\n", i, pair->key->len,
+           pair->key->len, pair->key->data, pair->offset);
+
     fwrite(&kKeyTag, kTagSize, 1, fptr);
-    fwrite(&keys[i]->len, kLStringLenSize, 1, fptr);
+    fwrite(&pair->key->len, kLStringLenSize, 1, fptr);
     fwrite(pair->key->data, 1, pair->key->len, fptr);
     fwrite(&pair->offset, sizeof(u32), 1, fptr);
     index_size += kTagSize + kLStringLenSize + pair->key->len + sizeof(u32);
@@ -218,16 +257,16 @@ SSTable *dump_memtable_to_sst(SkipList *mt, LString *filepath) {
   // printf("[THREAD %lu] dump_memtable_to_sst: Successfully wrote %u "
   //        "bytes to '%s', closing file\n",
   //        thread_id, sst->size, fp);
-  fclose(fptr); // This is mandatory to see the data on disk
   // printf("[THREAD %lu] dump_memtable_to_sst: Returning SST with "
   //        "filepath = '%s'\n ",
   //        thread_id, sst->filepath->data);
   array_set_length(offset_sparse_index, 0);
   free(offset_sparse_index->data);
   free(offset_sparse_index);
-  array_set_length(data_blocks, 0);
-  free(data_blocks->data);
-  free(data_blocks);
+  // for (u32 i = 0; i < out_count; i++) {
+  //   free(keys[i]->data);
+  //   free(values[i]->data);
+  // }
   free(keys);
   free(values);
   return sst;
@@ -359,6 +398,12 @@ LString *search_in_sst(SSTable sst, LString *key) {
   fp = lstring_to_cstr(
       sst.filepath); // 0-terminated means can copy 127 chars max
   FILE *fptr = fopen(fp, "r");
+  if (fptr == NULL) {
+    int err = errno;
+    printf("ERROR [%d]: cannot open file '%s'\n", err, fp);
+    fclose(fptr);
+    return NULL;
+  }
 
   struct stat st;
   fstat(fileno(fptr), &st);
@@ -439,11 +484,9 @@ LString *search_in_sst(SSTable sst, LString *key) {
       }
       free(keys->data);
       free(keys);
-      for (u32 i = 0; i < offsets->len; i++) {
-        free(array_index(offsets, LString, i).data);
-      }
       free(offsets->data);
       free(offsets);
+      fclose(fptr);
       return value;
     } else {
       u16 value_len;
@@ -460,11 +503,9 @@ LString *search_in_sst(SSTable sst, LString *key) {
   }
   free(keys->data);
   free(keys);
-  for (u32 i = 0; i < offsets->len; i++) {
-    free(array_index(offsets, LString, i).data);
-  }
   free(offsets->data);
   free(offsets);
+  fclose(fptr);
   return NULL;
 }
 
