@@ -57,8 +57,15 @@ void byte_ring_append_n(struct ByteRing *br, const u8 *buf, u32 n) {
   if (br->size == 0) {
     br->start = 0;
   }
+
   u32 write_idx = ADD1_MOD_N(byte_ring_end(br), br->cap);
-  memcpy(br->data + write_idx, buf, n);
+  if (br->cap >= write_idx + n) {
+    memcpy(br->data + write_idx, buf, n);
+  } else {
+    int first_part = (br->cap - byte_ring_end(br));
+    memcpy(br->data + write_idx, buf, first_part);
+    memcpy(br->data, buf + first_part - 1, n - first_part);
+  }
   br->size += n;
 }
 
@@ -82,7 +89,7 @@ void byte_ring_copy_n(struct ByteRing *br, u8 *buf, u32 start, u32 len) {
   } else {
     int first_part = (start + len) - br->cap;
     memcpy(buf, br->data + start, first_part);
-    memcpy(buf, br->data, len - first_part);
+    memcpy(buf + first_part, br->data, len - first_part);
   }
 }
 
@@ -92,28 +99,28 @@ void byte_ring_copy_first_n(struct ByteRing *br, u8 *buf, u32 len) {
 
 void byte_ring_print_logical_order(struct ByteRing *br) {
   if (br->size == 0) {
-//     printf("[]\n");
+    printf("[]\n");
     return;
   }
-//   printf("[");
+  printf("[");
 
   u32 j = br->start;
   for (u32 i = 0; i + 1 < br->size; i++) { // all but last el.
     isprint(br->data[j]) ? printf("%c", br->data[j]) : printf("_");
-//     printf(","); // comma!
+    printf(","); // comma!
     j = ADD1_MOD_N(j, br->cap);
   }
-//   printf("%c", br->data[j]); // last element without comma
+  printf("%c", br->data[j]); // last element without comma
 
-//   printf("]\n");
+  printf("]\n");
 }
 
 void byte_ring_print_physical_order(struct ByteRing *br) {
   if (br->size == 0) {
-//     printf("[]\n");
+    printf("[]\n");
     return;
   }
-//   printf("[");
+  printf("[");
 
   u32 i;
   for (i = 0; i + 1 < br->cap; i++) { // all but last el.
@@ -123,19 +130,19 @@ void byte_ring_print_physical_order(struct ByteRing *br) {
         ((br->start >= br_end) && !(i > br_end && i < br->start))) {
       isprint(br->data[i]) ? printf("%c", br->data[i]) : printf("_");
     } else {
-//       printf(" - ");
+      printf(" - ");
     }
-//     printf(","); // comma!
+    printf(","); // comma!
   }
-//   printf("%c", br->data[i]); // last element without comma
+  printf("%c", br->data[i]); // last element without comma
 
-//   printf("]\n");
+  printf("]\n");
 }
 void byte_ring_debug_print(struct ByteRing *br) {
-//   printf("br.start=%d\n", br->start);
-//   printf("br_end=%d\n", byte_ring_end(br));
-//   printf("br.size=%d\n", br->size);
-//   printf("br.cap=%d\n", br->cap);
+  //   printf("br.start=%d\n", br->start);
+  //   printf("br_end=%d\n", byte_ring_end(br));
+  //   printf("br.size=%d\n", br->size);
+  //   printf("br.cap=%d\n", br->cap);
   byte_ring_print_logical_order(br);
   byte_ring_print_physical_order(br);
 }
