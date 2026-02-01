@@ -80,6 +80,18 @@ SkipList *sl_s_init() {
   return sl;
 }
 
+i32 sl_s_destroy(SkipList *sl) {
+  Node *curr = sl->head;
+  Node *next = curr->next[0];
+  while (next) {
+    lstring_free(curr->key);
+    // lstring_free(curr->value);
+    free(curr);
+    curr = next;
+    next = next->next[0];
+  }
+}
+
 LString *sl_s_find(SkipList *sl, LString *key) {
   Node *prev = NULL;
   Node *curr = sl->head;
@@ -106,13 +118,15 @@ LString *sl_s_find(SkipList *sl, LString *key) {
       curr = prev;
       prev = curr;
     } else {
-      return curr->value;
+      printf("TOMBSTONE: %d\n", curr->tombstone);
+      return curr->tombstone == 1 ? NULL : curr->value;
     }
   }
   return NULL;
 }
 
-i32 sl_s_insert(SkipList *sl, LString *key, LString *value) {
+i32 sl_s_insert_internal(SkipList *sl, LString *key, LString *value,
+                         u8 tombstone) {
   Node *insertion_points[sl->num_levels];
   Node *prev = NULL;
   Node *curr = sl->head;
@@ -142,7 +156,13 @@ i32 sl_s_insert(SkipList *sl, LString *key, LString *value) {
       //       printf("EARLY RET!!\n");
       //       printf("=== L%d key(%.*s) > curr->key(%.*s)\n", level, key->len,
       // key->data, curr->key->len, curr->key->data);
-      return 1;
+      if (tombstone == 1) {
+          curr->tombstone = 1;
+          lstring_free(curr->value);
+          return 0;
+      } else {
+          return 0;
+      }
     }
   }
   int sum = 1;
@@ -155,6 +175,8 @@ i32 sl_s_insert(SkipList *sl, LString *key, LString *value) {
   Node *new_node = malloc(sizeof(Node) + sum * sizeof(Node *));
   new_node->key = key;
   new_node->value = value;
+  printf("tombstone at remove: %d\n", tombstone);
+  new_node->tombstone = tombstone;
   //   printf("key->len = %d ;; value->len = %d\n", key->len, value->len);
   sl->size_in_bytes += (key->len + value->len);
   for (int i = 0; i < sum; i++) {
@@ -165,43 +187,13 @@ i32 sl_s_insert(SkipList *sl, LString *key, LString *value) {
   return 0;
 }
 
+i32 sl_s_insert(SkipList *sl, LString *key, LString *value) {
+  return sl_s_insert_internal(sl, key, value, 0);
+}
+
 i32 sl_s_remove(SkipList *sl, LString *key) {
-  Node *prev = NULL;
-  Node *curr = sl->head;
-  int level = curr->level;
-
-  while (level >= 0) {
-
-    if (curr == NULL) {
-      curr = prev;
-      level--;
-      continue;
-    }
-    if (lstring_compare(key, curr->key) > 0) {
-      printf("L%d key(%.*s) > curr->key(%.*s)\n", level, key->len, key->data,
-             curr->key->len, curr->key->data);
-      prev = curr;
-      curr = curr->next[level];
-    } else if (lstring_compare(key, curr->key) < 0) {
-      printf("L%d key(%.*s) < curr->key(%.*s)\n", level, key->len, key->data,
-             curr->key->len, curr->key->data);
-      level--;
-      curr = prev;
-      prev = curr;
-    } else {
-      Node *level_prev = prev;
-      for (int i = level; i >= 0; i--) {
-        while (level_prev->next[i] != curr) {
-          level_prev = level_prev->next[i];
-        }
-        level_prev->next[i] = curr->next[i];
-      }
-      sl->size_in_bytes += curr->key->len + curr->value->len;
-      free(curr);
-      return 0;
-    }
-  }
-  return 1;
+  printf("REMOVE CALLED\n");
+  return sl_s_insert_internal(sl, key, NULL, 1);
 }
 
 i32 sl_s_get_data(SkipList *sl, LString ***keys_out, LString ***values_out,

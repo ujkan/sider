@@ -6,13 +6,16 @@
 
 typedef struct Node Node;
 typedef struct SkipList SkipList;
+typedef struct SkipListValue SkipListValue;
 
 struct Node {
   int level;
   LString *key;
+  u8 tombstone;
   LString *value;
   Node *next[];
 };
+
 
 struct SkipList {
   int num_levels;
