@@ -42,6 +42,10 @@ typedef struct {
 } InactiveMemtables;
 
 typedef struct {
+  Array *sstables;
+} Level;
+
+typedef struct {
   // serves requests, tier 1
   SkipList *active_memtable;
   // these also serve requests, tier 2
@@ -51,6 +55,8 @@ typedef struct {
   InactiveMemtables inactive_memtables;
   // these also serve requests, tier 3
   Array *sstables;
+  Array *lvl_zero_sstables;
+  Array *levels;
   atomic_int sstable_count;
 } Store;
 
@@ -58,9 +64,9 @@ static u16 PORT = 8085;
 static u32 k_max_len = 4096;
 static u32 k_min_args = 1;
 static u32 k_max_args = 3;
-static u32 k_max_key_len = 2 << 30;
-static u32 k_max_value_len = 2 << 30;
-static u32 kMemtableLimit = 4 * 1024;
+static u32 k_max_key_len = 2 << 8;
+static u32 k_max_value_len = 2 << 12;
+static u32 kMemtableLimit = 64 * 1024;
 static struct hashmap *data;
 static Store *store;
 
@@ -106,7 +112,7 @@ Store *store_init() {
   atomic_store(&s->sstable_count, count_sst_files());
   for (int i = 0; i < atomic_load(&s->sstable_count); i++) {
     SSTable sst = {0};
-    sst.filepath = lstring_create(4 + i / 10);
+    sst.filepath = lstring_create(5 + i / 10);
     sprintf(sst.filepath->data, "%d.sst", i);
     sst.size = 0;
     array_push(s->sstables, &sst);
@@ -273,8 +279,9 @@ void handle_command(struct Command *cmd, struct Response *out) {
     printf("SSTables\n");
     int sstable_count = atomic_load(&store->sstable_count);
     for (int i = 0; i < sstable_count; i++) {
-        SSTable sst = array_index(store->sstables, SSTable, i);
-        printf("SSTable %d : filepath=%.*s : size=%d\n", i, sst.filepath->len, sst.filepath->data, sst.size);
+      SSTable sst = array_index(store->sstables, SSTable, i);
+      printf("SSTable %d : filepath=%.*s : size=%d\n", i, sst.filepath->len,
+             sst.filepath->data, sst.size);
     }
     printf("------------------------------\n");
 
@@ -310,7 +317,7 @@ void handle_command(struct Command *cmd, struct Response *out) {
       }
       pthread_mutex_unlock(&store->inactive_memtables.lock);
       int sstable_count = atomic_load(&store->sstable_count);
-      for (int i = 0; i < sstable_count; i++) {
+      for (int i = sstable_count - 1; i >= 0; i--) {
         SSTable sst = array_index(store->sstables, SSTable, i);
         value = search_in_sst(sst, key);
         if (value) {
@@ -327,7 +334,7 @@ void handle_command(struct Command *cmd, struct Response *out) {
   case COMMAND_TYPE_DELETE:
 
     key = cmd->data.key;
-    int rv = hashmap_delete(data, key);
+    int rv = sl_s_remove(store->active_memtable, key);
     if (rv == 1) {
       out->status = 0; // deleted!
     } else {
@@ -492,7 +499,7 @@ void *dump_memtable_to_sstable(void *arg) {
       array_push(store->sstables, sst);
     }
 
-    // sl_s_destroy(mt);
+    sl_s_destroy(mt);
     free(mt);
   }
 
