@@ -49,6 +49,7 @@
 #include <string.h>
 #include <strings.h>
 #include <sys/stat.h>
+#include <threads.h>
 #include <time.h>
 const u32 kTagSize = 2; // bytes
 u16 kKeyTag = 0;
@@ -57,6 +58,8 @@ u16 kPairTag = 2;
 u16 kIndexTag = 3;
 u16 kDataTag = 4;
 u16 kCompressedBlockTag = 5;
+thread_local char *t_block_buf = NULL;
+thread_local char *t_comp_buf = NULL;
 
 static void cleanup_char_buf(char **ptr) {
   //   printf("FREEINGBUFFER\n");
@@ -79,23 +82,87 @@ int ceil_div(int a, int b) {
 }
 
 struct KeyOffsetPair {
-  LString *key;
+  LString key;
   u32 offset;
 };
 
 void KeyOffsetPair_free(void *ptr) {
-  lstring_free(((struct KeyOffsetPair *)ptr)->key);
+  lstring_free(&((struct KeyOffsetPair *)ptr)->key);
 }
 
 struct SSTPair {
   u16 tag;
   LString key;
+  u8 tombstone;
   LString value;
 };
 
 void SSTPair_free(void *ptr) {
   free(((struct SSTPair *)ptr)->key.data);
   free(((struct SSTPair *)ptr)->value.data);
+}
+
+void SSTPair_deserialize(struct SSTPair *pair, char **cursor) {
+  memcpy(*cursor, &pair->tag, kTagSize);
+  *cursor += kTagSize;
+  memcpy(*cursor, &pair->key.len, kLStringLenSize);
+  *cursor += kLStringLenSize;
+  memcpy(*cursor, pair->key.data, pair->key.len);
+  *cursor += pair->key.len;
+  memcpy(*cursor, &pair->tombstone, sizeof(pair->tombstone));
+  *cursor += sizeof(pair->tombstone);
+  memcpy(*cursor, &pair->value.len, kLStringLenSize);
+  *cursor += kLStringLenSize;
+  memcpy(*cursor, pair->value.data, pair->value.len);
+  *cursor += pair->value.len;
+}
+
+void KeyOffsetPair_deserialize(struct KeyOffsetPair *pair, char **cursor) {
+  *cursor += 2; // TODO: kTagSize
+  memcpy(&(pair->key.len), *cursor, kLStringLenSize);
+  *cursor += kLStringLenSize;
+  pair->key.data = malloc(pair->key.len);
+  memcpy(pair->key.data, *cursor, pair->key.len);
+  *cursor += pair->key.len;
+  memcpy(&pair->offset, *cursor, sizeof(pair->offset));
+  *cursor += sizeof(pair->offset);
+}
+
+u32 KeyOffsetPair_serialize(struct KeyOffsetPair *pair, FILE *cursor) {
+  fwrite(&kKeyTag, kTagSize, 1, cursor);
+  fwrite(&pair->key.len, kLStringLenSize, 1, cursor);
+  fwrite(pair->key.data, 1, pair->key.len, cursor);
+  fwrite(&pair->offset, sizeof(u32), 1, cursor);
+  return kTagSize + kLStringLenSize + pair->key.len + sizeof(u32);
+}
+#define MAX_BLOCK_SIZE (320 * 1024)
+#define MAX_COMP_SIZE (MAX_BLOCK_SIZE + (MAX_BLOCK_SIZE / 255) + 16)
+
+void compress_and_write(Array *data_blocks, int data_len, FILE *fptr) {
+  if (!t_block_buf) {
+    t_block_buf = malloc(MAX_BLOCK_SIZE);
+    t_comp_buf = malloc(MAX_COMP_SIZE);
+  }
+
+  // 2. Safety check
+  if (data_len > MAX_BLOCK_SIZE)
+    return;
+  char *block_buf = t_block_buf;
+  char *compressed_block = t_comp_buf;
+  void *cursor = block_buf;
+  for (int j = 0; j < data_blocks->len; j++) {
+    struct SSTPair data = array_index(data_blocks, struct SSTPair, j);
+    SSTPair_deserialize(&data, &cursor);
+    // fwrite(&keys[prev]->len, kLStringLenSize, 1, fptr);
+    // fwrite(keys[prev]->data, 1, keys[prev]->len, fptr);
+  }
+
+  int compressed_block_size = LZ4_compress_default(
+      block_buf, compressed_block, data_len, LZ4_compressBound(data_len));
+  fwrite(&compressed_block_size, 1, sizeof(compressed_block_size), fptr);
+  fwrite(&data_len, 1, sizeof(data_len), fptr);
+  fwrite(compressed_block, 1, compressed_block_size, fptr);
+  array_set_length(data_blocks, 0);
 }
 
 SSTable *dump_memtable_to_sst(SkipList *mt, LString *filepath) {
@@ -148,42 +215,14 @@ SSTable *dump_memtable_to_sst(SkipList *mt, LString *filepath) {
   for (u32 i = 0; i < out_count; i++) {
 
     if (i > 0 && i % batch_size == 0) {
-      void *block_buf = malloc(data_len);
-      void *cursor = block_buf;
-      for (int j = 0; j < data_blocks->len; j++) {
-        struct SSTPair data = array_index(data_blocks, struct SSTPair, j);
-        memcpy(cursor, &data.tag, kTagSize);
-        cursor += kTagSize;
-        memcpy(cursor, &data.key.len, kLStringLenSize);
-        cursor += kLStringLenSize;
-        memcpy(cursor, data.key.data, data.key.len);
-        cursor += data.key.len;
-        memcpy(cursor, &data.value.len, kLStringLenSize);
-        cursor += kLStringLenSize;
-        memcpy(cursor, data.value.data, data.value.len);
-        cursor += data.value.len;
-        // fwrite(&kPairTag, kTagSize, 1, fptr);
-        // fwrite(&keys[prev]->len, kLStringLenSize, 1, fptr);
-        // fwrite(keys[prev]->data, 1, keys[prev]->len, fptr);
-      }
-
-      void *compressed = malloc(LZ4_compressBound(data_len));
-      int written = LZ4_compress_default(block_buf, compressed, data_len,
-                                         LZ4_compressBound(data_len));
-      fwrite(&written, 1, sizeof(written), fptr);
-      fwrite(&data_len, 1, sizeof(data_len), fptr);
-      fwrite(compressed, 1, written, fptr);
-      free(block_buf);
-      free(compressed);
-      array_set_length(data_blocks, 0);
+      compress_and_write(data_blocks, data_len, fptr);
       data_len = 0;
     }
-
     if (i % batch_size == 0) {
       u32 current_offset = (u32)(ftell(fptr) - start_pos);
       array_push(
           offset_sparse_index,
-          &(struct KeyOffsetPair){.key = keys[i], .offset = current_offset});
+          &(struct KeyOffsetPair){.key = *keys[i], .offset = current_offset});
     }
     LString *key = keys[i];
     LString *value = values[i];
@@ -196,36 +235,9 @@ SSTable *dump_memtable_to_sst(SkipList *mt, LString *filepath) {
         kTagSize + kLStringLenSize + key->len + kLStringLenSize + value->len;
     //     printf("DATA_LEN: %d\n", data_len);
   }
-  void *block_buf = malloc(data_len);
-  void *cursor = block_buf;
-  for (int j = 0; j < data_blocks->len; j++) {
-    struct SSTPair data = array_index(data_blocks, struct SSTPair, j);
-    memcpy(cursor, &data.tag, kTagSize);
-    cursor += kTagSize;
-    memcpy(cursor, &data.key.len, kLStringLenSize);
-    cursor += kLStringLenSize;
-    memcpy(cursor, data.key.data, data.key.len);
-    cursor += data.key.len;
-    memcpy(cursor, &data.value.len, kLStringLenSize);
-    cursor += kLStringLenSize;
-    memcpy(cursor, data.value.data, data.value.len);
-    cursor += data.value.len;
-    // fwrite(&kPairTag, kTagSize, 1, fptr);
-    // fwrite(&keys[prev]->len, kLStringLenSize, 1, fptr);
-    // fwrite(keys[prev]->data, 1, keys[prev]->len, fptr);
-  }
-
-  void *compressed_block = malloc(LZ4_compressBound(data_len));
-  int compressed_block_size = LZ4_compress_default(
-      block_buf, compressed_block, data_len, LZ4_compressBound(data_len));
-  fwrite(&compressed_block_size, 1, sizeof(compressed_block_size), fptr);
-  fwrite(&data_len, 1, sizeof(data_len), fptr);
-  fwrite(compressed_block, 1, compressed_block_size, fptr);
-  free(block_buf);
-  free(compressed_block);
+  compress_and_write(data_blocks, data_len, fptr);
   free(data_blocks->data);
   free(data_blocks);
-  data_len = 0;
 
   index_offset = ftell(fptr);
 
@@ -236,14 +248,9 @@ SSTable *dump_memtable_to_sst(SkipList *mt, LString *filepath) {
     struct KeyOffsetPair *pair =
         &array_index(offset_sparse_index, struct KeyOffsetPair, i);
 
-    printf("index[%d]: key len=%d data=%.*s offset=%d\n", i, pair->key->len,
-           pair->key->len, pair->key->data, pair->offset);
-
-    fwrite(&kKeyTag, kTagSize, 1, fptr);
-    fwrite(&pair->key->len, kLStringLenSize, 1, fptr);
-    fwrite(pair->key->data, 1, pair->key->len, fptr);
-    fwrite(&pair->offset, sizeof(u32), 1, fptr);
-    index_size += kTagSize + kLStringLenSize + pair->key->len + sizeof(u32);
+    printf("index[%d]: key len=%d data=%.*s offset=%d\n", i, pair->key.len,
+           pair->key.len, pair->key.data, pair->offset);
+    index_size += KeyOffsetPair_serialize(pair, fptr);
   }
 
   // write footer
@@ -293,7 +300,7 @@ size_t serialize_skip_list(SkipList *mt, char *buf) {
   for (u32 i = 0; i < out_count; i++) {
     if (i % batch_size == 0) {
       array_push(offset_sparse_index,
-                 &(struct KeyOffsetPair){.key = keys[i],
+                 &(struct KeyOffsetPair){.key = *keys[i],
                                          .offset = (u32)(buf - start)});
     }
     memcpy(buf, &kPairTag, kTagSize);
@@ -376,25 +383,15 @@ void deserialize_index(char *index, int len, Array *keys_out,
   char buf[8];
   char *curr = index;
   while ((curr - index) < len) {
-    curr += kTagSize;
-    LString key = {0};
-
-    memcpy(&(key.len), curr, kLStringLenSize);
-    curr += kLStringLenSize;
-    key.data = malloc(key.len);
-    memcpy(key.data, curr, key.len);
-    curr += key.len;
-    array_push(keys_out, &key);
-
-    u32 offset;
-    memcpy(&offset, curr, sizeof(offset));
-    curr += sizeof(offset);
-    array_push(offsets_out, &offset);
+    struct KeyOffsetPair kop = {0};
+    KeyOffsetPair_deserialize(&kop, &curr);
+    array_push(keys_out, &kop.key);
+    array_push(offsets_out, &kop.offset);
   }
 }
 
 LString *search_in_sst(SSTable sst, LString *key) {
-  char *fp __attribute__((__cleanup__(free_char)));
+  char *fp __attribute__((__cleanup__(cleanup_char_buf)));
   fp = lstring_to_cstr(
       sst.filepath); // 0-terminated means can copy 127 chars max
   FILE *fptr = fopen(fp, "r");
@@ -457,6 +454,20 @@ LString *search_in_sst(SSTable sst, LString *key) {
   char *dst = malloc(uncompressed_len);
   LZ4_decompress_safe(buf, dst, block_len, uncompressed_len);
   char *cursor = dst;
+  struct SSTPair p = {0};
+  while (cursor - dst <= uncompressed_len) {
+    SSTPair_deserialize(&p, &cursor);
+    if (lstring_compare(&p.key, key) == 0) {
+      if (p.tombstone == 1) {
+        return NULL;
+      }
+      LString *value = malloc(sizeof(LString));
+      *value = p.value;
+      return value;
+    }
+  }
+  return NULL;
+
   // TODO: do linear search here
   printf("Beginning linear search\n");
   printf("Searching for key: %.*s\n", key->len, key->data);
