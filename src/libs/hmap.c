@@ -6,7 +6,7 @@
 
 u32 hash(LString *key, int kssize) {
   unsigned int h = 0;
-  for (uint i = 0; i < key->len; i++) {
+  for (u16 i = 0; i < key->len; i++) {
     h += (unsigned char)(key->data[i]);
   }
   return h % kssize;
