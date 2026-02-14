@@ -390,14 +390,19 @@ void deserialize_index(char *index, int len, Array *keys_out,
   }
 }
 
-LString *search_in_sst(SSTable sst, LString *key) {
+FILE *sstable_open_file(SSTable *sst) {
   char *fp __attribute__((__cleanup__(cleanup_char_buf)));
-  fp = lstring_to_cstr(
-      sst.filepath); // 0-terminated means can copy 127 chars max
+  fp = lstring_to_cstr(sst->filepath);
   FILE *fptr = fopen(fp, "r");
+  return fptr;
+}
+
+LString *search_in_sst(SSTable sst, LString *key) {
+  FILE *fptr = sstable_open_file(&sst);
   if (fptr == NULL) {
     int err = errno;
-    printf("ERROR [%d]: cannot open file '%s'\n", err, fp);
+    printf("ERROR [%d]: cannot open file '%.*s'\n", err, sst.filepath->len,
+           sst.filepath->data);
     fclose(fptr);
     return NULL;
   }
@@ -547,6 +552,100 @@ void debug_dump_buffer(const char *label, const void *data, size_t size) {
   printf("--------------------------------\n");
 }
 
+void SSTPair_deserialize_without_vals(struct SSTPair *pair, char *cursor) {
+  memcpy(&pair->tag, cursor, kTagSize);
+  cursor += kTagSize;
+  memcpy(&pair->key.len, cursor, kLStringLenSize);
+  cursor += kLStringLenSize;
+  memcpy(pair->key.data, cursor, pair->key.len);
+  cursor += pair->key.len;
+  memcpy(&pair->tombstone, cursor, sizeof(pair->tombstone));
+  cursor += sizeof(pair->tombstone);
+  memcpy(&pair->value.len, cursor, kLStringLenSize);
+  cursor += kLStringLenSize;
+}
+
+char *sstable_get_data_block(SSTable *sst) {
+  FILE *fptr = sstable_open_file(sst);
+  if (fptr == NULL) {
+    int err = errno;
+    printf("ERROR [%d]: cannot open file '%.*s'\n", err, sst->filepath->len,
+           sst->filepath->data);
+    fclose(fptr);
+    return NULL;
+  }
+
+  struct stat st;
+  fstat(fileno(fptr), &st);
+
+  fseek(fptr, st.st_size - 8, SEEK_SET);
+  u32 index_offset;
+  u32 index_size;
+  fread(&index_offset, 1, sizeof(index_offset), fptr);
+  fread(&index_size, 1, sizeof(index_size), fptr);
+
+  fseek(fptr, 0, SEEK_SET);
+
+  char *data_block = malloc(index_offset);
+  fread(data_block, 1, index_offset, fptr);
+  return data_block;
+}
+
+char *decompress_block(char *block, int *compressed_block_size, int *data_len) {
+  memcpy(compressed_block_size, block, sizeof(*compressed_block_size));
+  block += sizeof(compressed_block_size);
+  memcpy(data_len, block, sizeof(*data_len));
+  block += sizeof(data_len);
+
+  char *decompressed = malloc(*compressed_block_size);
+  memcpy(decompressed, block, *compressed_block_size);
+  return decompressed;
+}
+
+void merge_and_compact_level_zero(Array *sstables) {
+  char *cursors[sstables->len];
+  char *compressed_blocks[sstables->len];
+  u32 indices[sstables->len];
+  struct SSTPair pairs[sstables->len];
+  for (u32 i = 0; i < sstables->len; i++) {
+    compressed_blocks[i] =
+        sstable_get_data_block(&array_index(sstables, SSTable, i));
+    indices[i] = 0;
+  }
+
+  for (u32 i = 0; i <sstables->len; i++) {
+      int cbs;
+      int dl;
+      // todo: repeatedly decompress until done
+      // may need size of entire data block to know when to stop
+      // diff between single compressed block AND entire data block
+      decompress_block(compressed_blocks[i], &cbs, &dl);
+  }
+
+
+  FILE *out = fopen("out.sst", "a");
+
+  for (u32 i = 0; i < sstables->len; i++) {
+    SSTPair_deserialize_without_vals(&pairs[i], compressed_blocks[i]);
+  }
+  while (1) {
+    LString min_key = pairs[0].key;
+    u32 min_index = 0;
+    for (u32 i = 1; i < sstables->len; i++) {
+      if (lstring_compare(&min_key, &pairs[i].key) >= 0) {
+        min_key = pairs[i].key;
+        min_index = i;
+      }
+    }
+    compressed_blocks[min_index] +=
+        pairs[min_index].key.len + pairs[min_index].value.len +
+        2 * kLStringLenSize + sizeof(pairs[min_index].tombstone);
+    SSTPair_deserialize_without_vals(&pairs[min_index],
+                                     compressed_blocks[min_index]);
+    fwrite(min_key.data, min_key.len, 1, out);
+  }
+}
+
 // int main() {
 //   srand(time(0));
 //
@@ -560,7 +659,8 @@ void debug_dump_buffer(const char *label, const void *data, size_t size) {
 //   sl->head = nmin;
 //   sl->num_levels = 3;
 //
-//   // 2. Insert Test Data (using distinct values to make them easy to find in
+//   // 2. Insert Test Data (using distinct values to make them easy to find
+//   in
 //   // hex)
 //   printf("Populating Memtable...\n");
 //   LString *key_a = lstring_create_from_buf(5, "KEYA1");
@@ -604,7 +704,8 @@ void debug_dump_buffer(const char *label, const void *data, size_t size) {
 //
 //     // %.*s takes the length (debug_keys[i].len) as the first arg
 //     // and the char pointer as the second.
-//     printf("Len: %-4u | Data: \"%.*s\" | Value: %.*s\n", debug_keys[i]->len,
+//     printf("Len: %-4u | Data: \"%.*s\" | Value: %.*s\n",
+//     debug_keys[i]->len,
 //            (int)debug_keys[i]->len, debug_keys[i]->data,
 //            debug_values[i]->len, debug_values[i]->data);
 //   }

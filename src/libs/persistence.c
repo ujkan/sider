@@ -99,9 +99,9 @@ void deserialize_kv_pair(char **fbuf, LString *key, LString *value) {
   uint32_t length;
   char *bufptr = *fbuf;
   memcpy(&length, bufptr - sizeof(length), sizeof(length));
-  // printf("bufptr: %p\n", bufptr);
+  printf("bufptr: %p\n", bufptr);
   bufptr -= sizeof(length);
-  // printf("length: %ld\n", length);
+  printf("length: %ld\n", length);
   // if (bufptr < length) {
   //   return;
   // }
@@ -112,7 +112,7 @@ void deserialize_kv_pair(char **fbuf, LString *key, LString *value) {
   bufptr -= kValueSize;
   value->data = malloc(value->len);
   memcpy(value->data, bufptr - value->len, value->len);
-  // printf("value->len: %d\n", value->len);
+  printf("value->len: %d\n", value->len);
   bufptr -= value->len;
   bufptr -= kValueSize; // skip the frontal length
 
@@ -120,7 +120,7 @@ void deserialize_kv_pair(char **fbuf, LString *key, LString *value) {
   bufptr -= kKeySize;
   key->data = malloc(key->len);
   memcpy(key->data, bufptr - key->len, key->len);
-  // printf("key->len: %d\n", key->len);
+  printf("key->len: %d\n", key->len);
   bufptr -= key->len;
   bufptr -= kKeySize; // skip the frontal length
 
@@ -211,10 +211,10 @@ int8_t segment_compact_mrg(struct SegmentList *sl) {
       segment_ptrs[i] = ptr;
       printf("[%d]%.*s -> ", i, key->len, key->data);
       printf("[%d]%.*s\n", i, value->len, value->data);
-      // printf("src: %p\n", src);
-      // printf("ptr: %p\n", ptr);
-      // printf("key_len:%d\n", key.len);
-      // printf("val_len:%d\n", key.len);
+      printf("src: %p\n", src);
+      printf("ptr: %p\n", ptr);
+      printf("key_len:%d\n", key.len);
+      printf("val_len:%d\n", key.len);
       rc = hashmap_si_insert(map, key, offset);
       if (rc >= 0) {
         int entry_len = calc_entry_len(key->len, value->len);
@@ -260,12 +260,12 @@ int8_t segment_compact_mrg(struct SegmentList *sl) {
 
   // LString key2, value2 = {0};
   // deserialize_kv_pair(&ptr, &key2, &value2);
-  // printf("src: %p\n", src);
-  // printf("ptr: %p\n", ptr);
-  // printf("key2_len:%d\n", key2.len);
-  // printf("val_len:%d\n", key2.len);
-  // printf("%.*s -> ", key2.len, key2.data);
-  // printf("%.*s -> ", value2.len, value2.data);
+  printf("src: %p\n", src);
+  printf("ptr: %p\n", ptr);
+  printf("key2_len:%d\n", key2.len);
+  printf("val_len:%d\n", key2.len);
+  printf("%.*s -> ", key2.len, key2.data);
+  printf("%.*s -> ", value2.len, value2.data);
 
   // TODO: err handling
 

@@ -65,7 +65,7 @@ static u32 k_max_len = 4096;
 static u32 k_min_args = 1;
 static u32 k_max_args = 3;
 static u32 k_max_key_len = 2 << 8;
-static u32 k_max_value_len = 2 << 12;
+static u32 k_max_value_len = 2 << 14;
 static u32 kMemtableLimit = 64 * 1024;
 static struct hashmap *data;
 static Store *store;
@@ -180,7 +180,8 @@ struct Response {
 typedef enum {
   COMMAND_TYPE_GET = 'g',
   COMMAND_TYPE_SET = 's',
-  COMMAND_TYPE_DELETE = 'd'
+  COMMAND_TYPE_DELETE = 'd',
+  COMMAND_TYPE_MERGE = 'm'
 } CommandType;
 struct Command {
   CommandType type;
@@ -245,6 +246,10 @@ int parse_command(PtrArray *cmd_arr, struct Command *command) {
   u8 *ctype = ((LString *)ptr_array_index(cmd_arr, 0))->data;
   if (cmd_arr->len == 1 && strncmp((char *)ctype, "print", 5) == 0) {
     command->type = 'p';
+    return 0;
+  }
+  if (cmd_arr->len == 1 && strncmp((char *)ctype, "merge", 5) == 0) {
+    command->type = 'm';
     return 0;
   }
   if (cmd_arr->len == 2) {
@@ -335,7 +340,7 @@ void handle_command(struct Command *cmd, struct Response *out) {
 
     key = cmd->data.key;
     int rv = sl_s_remove(store->active_memtable, key);
-    if (rv == 1) {
+    if (rv == 0) {
       out->status = 0; // deleted!
     } else {
       out->status = 1; // not found
@@ -371,6 +376,8 @@ void handle_command(struct Command *cmd, struct Response *out) {
     }
     out->status = 0;
     break;
+  case COMMAND_TYPE_MERGE:
+    merge_and_compact_level_zero(store->sstables);
   }
   if (out->status == 2) {
     const char *r = "Invalid request!";

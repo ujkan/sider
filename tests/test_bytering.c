@@ -34,10 +34,12 @@ void test_append_n_empty_non_zero_start_wrap() {
   printf("test_append_n_empty_non_zero_start_wrap\n");
   struct ByteRing *br;
   br = byte_ring_init(10);
-  br->start = 9;
+  br->start = 8;
+  br->data[br->start] = 'X';
+  br->size = 1;
   byte_ring_append_n(br, buf, 5);
-  assert(br->size == 5);
-  assert(br->start == 0);
+  assert(br->size == 6);
+  assert(br->start == 8);
   byte_ring_debug_print(br);
   printf("-------------------\n");
 }
