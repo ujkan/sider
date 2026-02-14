@@ -31,14 +31,19 @@ PtrArray *ptr_array_sized_new(u64 reserved_size) {
 
 static void ptr_array_maybe_expand(FullPtrArray *farray, u64 length) {
   if (length > farray->cap) {
-    void *new_data = reallocarray(farray->data, MAX(length, farray->cap * 2),
-                                  sizeof(void *));
+    size_t new_cap = MAX(length, farray->cap * 2);
+    // Check for multiplication overflow
+    if (new_cap > SIZE_MAX / sizeof(void *)) {
+      fprintf(stderr, "ERROR: Allocation size overflow\n");
+      exit(1);
+    }
+    void **new_data = realloc(farray->data, new_cap * sizeof(void *));
     if (!new_data) {
-//       printf("ERROR: Could not reallocate ptr_array to length %ld\n", length);
+      fprintf(stderr, "ERROR: Could not reallocate ptr_array to length %llu\n", length);
       exit(1);
     }
     farray->data = new_data;
-    farray->cap = length;
+    farray->cap = new_cap;
   }
 }
 

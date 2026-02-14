@@ -46,15 +46,22 @@ void array_set(Array *array, u64 index, void *item) {
 
 static void array_maybe_expand(FullArray *farray, u64 length) {
   if (length > farray->cap) {
-    void *new_data = reallocarray(farray->data, MAX(length, farray->cap * 2),
-                                  farray->element_size);
+    size_t new_cap = MAX(length, farray->cap * 2);
+
+    // Check for multiplication overflow
+    if (new_cap > SIZE_MAX / farray->element_size) {
+      fprintf(stderr, "ERROR: Allocation size overflow\n");
+      exit(1);
+    }
+
+    void *new_data = realloc(farray->data, new_cap * farray->element_size);
     if (!new_data) {
-      //       printf("ERROR: Could not reallocate ptr_array to length %ld\n",
-      //       length);
+      fprintf(stderr, "ERROR: Could not reallocate array to length %llu\n",
+              length);
       exit(1);
     }
     farray->data = new_data;
-    farray->cap = length;
+    farray->cap = new_cap; // <- Fixed: was 'length', should be 'new_cap'
   }
 }
 
