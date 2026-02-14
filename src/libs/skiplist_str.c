@@ -110,7 +110,8 @@ LString *sl_s_find(SkipList *sl, LString *key) {
       // curr->key->len, curr->key->data);
       prev = curr;
       curr = curr->next[level];
-    } else if (lstring_compare(key, curr->key) < 0) {
+    } else if (lstring_compare(key, curr->key) < 0 ||
+               (lstring_compare(key, curr->key) == 0 && curr->tombstone == 1)) {
       //       printf("L%d key(%.*s) < curr->key(%.*s)\n", level, key->len,
       //       key->data,
       // curr->key->len, curr->key->data);
@@ -157,11 +158,13 @@ i32 sl_s_insert_internal(SkipList *sl, LString *key, LString *value,
       //       printf("=== L%d key(%.*s) > curr->key(%.*s)\n", level, key->len,
       // key->data, curr->key->len, curr->key->data);
       if (tombstone == 1) {
-          curr->tombstone = 1;
-          lstring_free(curr->value);
-          return 0;
+        curr->tombstone = 1;
+        lstring_free(curr->value);
+        return 0;
       } else {
-          return 0;
+        lstring_free(curr->value);
+        curr->value = value;
+        return 0;
       }
     }
   }
