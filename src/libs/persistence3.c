@@ -34,13 +34,12 @@
  *
  */
 
-#include "bytering.h"
 #include "lstr.h"
-#include "lz4.h"
 #include "persistence.h"
 #include "skiplist_str.h"
 #include "u_array.h"
 #include <errno.h>
+#include <lz4.h>
 #include <pthread.h>
 #include <stddef.h>
 #include <stdint.h>
@@ -49,7 +48,6 @@
 #include <string.h>
 #include <strings.h>
 #include <sys/stat.h>
-#include <threads.h>
 #include <time.h>
 const u32 kTagSize = 2; // bytes
 u16 kKeyTag = 0;
@@ -58,8 +56,8 @@ u16 kPairTag = 2;
 u16 kIndexTag = 3;
 u16 kDataTag = 4;
 u16 kCompressedBlockTag = 5;
-thread_local char *t_block_buf = NULL;
-thread_local char *t_comp_buf = NULL;
+__thread char *t_block_buf = NULL;
+__thread char *t_comp_buf = NULL;
 
 static void cleanup_char_buf(char **ptr) {
   //   printf("FREEINGBUFFER\n");
@@ -166,7 +164,7 @@ void compress_and_write(Array *data_blocks, int data_len, FILE *fptr) {
 }
 
 SSTable *dump_memtable_to_sst(SkipList *mt, LString *filepath) {
-  unsigned long thread_id = pthread_self();
+  pthread_t thread_id = pthread_self();
 
   SSTable *sst = malloc(sizeof(SSTable));
   sst->filepath = filepath;
@@ -325,11 +323,11 @@ size_t serialize_skip_list(SkipList *mt, char *buf) {
   for (u32 i = 0; i < (out_count - 1) / batch_size + 1; i++) {
     //     printf("idx-write-loop iter %d\n", i);
 
-    LString **key =
+    LString *key =
         &(array_index(offset_sparse_index, struct KeyOffsetPair, i).key);
     //     printf("key=%p\n", key);
-    memcpy(buf, (*key)->data, (*key)->len);
-    buf += (*key)->len;
+    memcpy(buf, key->data, key->len);
+    buf += key->len;
 
     u32 *offset =
         &(array_index(offset_sparse_index, struct KeyOffsetPair, i).offset);
@@ -613,15 +611,14 @@ void merge_and_compact_level_zero(Array *sstables) {
     indices[i] = 0;
   }
 
-  for (u32 i = 0; i <sstables->len; i++) {
-      int cbs;
-      int dl;
-      // todo: repeatedly decompress until done
-      // may need size of entire data block to know when to stop
-      // diff between single compressed block AND entire data block
-      decompress_block(compressed_blocks[i], &cbs, &dl);
+  for (u32 i = 0; i < sstables->len; i++) {
+    int cbs;
+    int dl;
+    // todo: repeatedly decompress until done
+    // may need size of entire data block to know when to stop
+    // diff between single compressed block AND entire data block
+    decompress_block(compressed_blocks[i], &cbs, &dl);
   }
-
 
   FILE *out = fopen("out.sst", "a");
 
