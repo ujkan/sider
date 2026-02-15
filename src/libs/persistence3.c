@@ -147,7 +147,7 @@ void compress_and_write(Array *data_blocks, int data_len, FILE *fptr) {
     return;
   char *block_buf = t_block_buf;
   char *compressed_block = t_comp_buf;
-  void *cursor = block_buf;
+  char *cursor = block_buf;
   for (int j = 0; j < data_blocks->len; j++) {
     struct SSTPair data = array_index(data_blocks, struct SSTPair, j);
     SSTPair_deserialize(&data, &cursor);
