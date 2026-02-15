@@ -66,7 +66,7 @@ static u32 k_min_args = 1;
 static u32 k_max_args = 3;
 static u32 k_max_key_len = 2 << 8;
 static u32 k_max_value_len = 2 << 14;
-static u32 kMemtableLimit = 64 * 1024;
+static u32 kMemtableLimit = 1 * 64;
 static struct hashmap *data;
 static Store *store;
 
