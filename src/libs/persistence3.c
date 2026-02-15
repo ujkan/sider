@@ -34,6 +34,7 @@
  *
  */
 
+#include "bytering.h"
 #include "lstr.h"
 #include "persistence.h"
 #include "skiplist_str.h"
@@ -56,6 +57,7 @@ u16 kPairTag = 2;
 u16 kIndexTag = 3;
 u16 kDataTag = 4;
 u16 kCompressedBlockTag = 5;
+u32 kBatchSize = 1 << 3;
 __thread char *t_block_buf = NULL;
 __thread char *t_comp_buf = NULL;
 
@@ -94,6 +96,11 @@ struct SSTPair {
   u8 tombstone;
   LString value;
 };
+
+u32 SSTPair_get_size(struct SSTPair *pair) {
+  return kTagSize + kLStringLenSize + pair->key.len + kLStringLenSize +
+         pair->value.len;
+}
 
 void SSTPair_free(void *ptr) {
   free(((struct SSTPair *)ptr)->key.data);
@@ -136,7 +143,7 @@ u32 KeyOffsetPair_serialize(struct KeyOffsetPair *pair, FILE *cursor) {
 #define MAX_BLOCK_SIZE (320 * 1024)
 #define MAX_COMP_SIZE (MAX_BLOCK_SIZE + (MAX_BLOCK_SIZE / 255) + 16)
 
-void compress_and_write(Array *data_blocks, int data_len, FILE *fptr) {
+void compress_and_write(Array *sst_pairs, int data_len, FILE *fptr) {
   if (!t_block_buf) {
     t_block_buf = malloc(MAX_BLOCK_SIZE);
     t_comp_buf = malloc(MAX_COMP_SIZE);
@@ -148,8 +155,8 @@ void compress_and_write(Array *data_blocks, int data_len, FILE *fptr) {
   char *block_buf = t_block_buf;
   char *compressed_block = t_comp_buf;
   char *cursor = block_buf;
-  for (int j = 0; j < data_blocks->len; j++) {
-    struct SSTPair data = array_index(data_blocks, struct SSTPair, j);
+  for (int j = 0; j < sst_pairs->len; j++) {
+    struct SSTPair data = array_index(sst_pairs, struct SSTPair, j);
     SSTPair_deserialize(&data, &cursor);
     // fwrite(&keys[prev]->len, kLStringLenSize, 1, fptr);
     // fwrite(keys[prev]->data, 1, keys[prev]->len, fptr);
@@ -160,7 +167,7 @@ void compress_and_write(Array *data_blocks, int data_len, FILE *fptr) {
   fwrite(&compressed_block_size, 1, sizeof(compressed_block_size), fptr);
   fwrite(&data_len, 1, sizeof(data_len), fptr);
   fwrite(compressed_block, 1, compressed_block_size, fptr);
-  array_set_length(data_blocks, 0);
+  array_set_length(sst_pairs, 0);
 }
 
 SSTable *dump_memtable_to_sst(SkipList *mt, LString *filepath) {
@@ -198,25 +205,23 @@ SSTable *dump_memtable_to_sst(SkipList *mt, LString *filepath) {
   int idx_struct_size = sizeof(struct KeyOffsetPair);
   Array *offset_sparse_index = array_sized_new(out_count, idx_struct_size);
 
-  u32 batch_size = 1 << 3;
-
   u32 index_size = 0;
   u32 index_offset = 0;
   u32 kFooterSize = 4 + 4; // 4 bytes for size; 4 for offset
   int data_len = 0;
 
   Array *data_blocks = array_sized_new(
-      batch_size,
+      kBatchSize,
       sizeof(struct SSTPair)); // k_max_key_len + k_max_value_len (upper bound
                                // for block)
   // --- Write the data and build the index ---
   for (u32 i = 0; i < out_count; i++) {
 
-    if (i > 0 && i % batch_size == 0) {
+    if (i > 0 && i % kBatchSize == 0) {
       compress_and_write(data_blocks, data_len, fptr);
       data_len = 0;
     }
-    if (i % batch_size == 0) {
+    if (i % kBatchSize == 0) {
       u32 current_offset = (u32)(ftell(fptr) - start_pos);
       array_push(
           offset_sparse_index,
@@ -229,8 +234,7 @@ SSTable *dump_memtable_to_sst(SkipList *mt, LString *filepath) {
     tmpdata.key = *key;
     tmpdata.value = *value;
     array_push(data_blocks, &tmpdata);
-    data_len +=
-        kTagSize + kLStringLenSize + key->len + kLStringLenSize + value->len;
+    data_len += SSTPair_get_size(&tmpdata);
     //     printf("DATA_LEN: %d\n", data_len);
   }
   compress_and_write(data_blocks, data_len, fptr);
@@ -240,7 +244,7 @@ SSTable *dump_memtable_to_sst(SkipList *mt, LString *filepath) {
   index_offset = ftell(fptr);
 
   // --- Write the index ---
-  u32 index_count = (out_count - 1) / batch_size + 1;
+  u32 index_count = (out_count - 1) / kBatchSize + 1;
   printf("Writing index...\n");
   for (u32 i = 0; i < index_count; i++) {
     struct KeyOffsetPair *pair =
@@ -550,20 +554,27 @@ void debug_dump_buffer(const char *label, const void *data, size_t size) {
   printf("--------------------------------\n");
 }
 
+void SSTPair_print(struct SSTPair *pair) {
+  printf("key=[%d]%.*s value=[%d]%.*s\n", pair->key.len, pair->key.len,
+         pair->key.data, pair->value.len, pair->value.len, pair->value.data);
+}
+
 void SSTPair_deserialize_without_vals(struct SSTPair *pair, char *cursor) {
   memcpy(&pair->tag, cursor, kTagSize);
   cursor += kTagSize;
   memcpy(&pair->key.len, cursor, kLStringLenSize);
   cursor += kLStringLenSize;
+  pair->key.data = malloc(pair->key.len);
   memcpy(pair->key.data, cursor, pair->key.len);
   cursor += pair->key.len;
   memcpy(&pair->tombstone, cursor, sizeof(pair->tombstone));
   cursor += sizeof(pair->tombstone);
   memcpy(&pair->value.len, cursor, kLStringLenSize);
   cursor += kLStringLenSize;
+  SSTPair_print(pair);
 }
 
-char *sstable_get_data_block(SSTable *sst) {
+char *sstable_get_data_block(SSTable *sst, u32 *data_block_size) {
   FILE *fptr = sstable_open_file(sst);
   if (fptr == NULL) {
     int err = errno;
@@ -585,47 +596,134 @@ char *sstable_get_data_block(SSTable *sst) {
   fseek(fptr, 0, SEEK_SET);
 
   char *data_block = malloc(index_offset);
+  *data_block_size = index_offset - 8;
   fread(data_block, 1, index_offset, fptr);
   return data_block;
 }
 
+struct CursorArray {
+  u32 size;
+  u32 cursor;
+  char *data;
+};
+
+void SSTPair_deserialize_without_vals_ca(struct SSTPair *pair,
+                                         struct CursorArray *ca) {
+  u32 cursor = ca->cursor;
+  memcpy(&pair->tag, &ca->data[cursor], kTagSize);
+  cursor += kTagSize;
+  memcpy(&pair->key.len, &ca->data[cursor], kLStringLenSize);
+  cursor += kLStringLenSize;
+  pair->key.data = malloc(pair->key.len);
+  memcpy(pair->key.data, &ca->data[cursor], pair->key.len);
+  cursor += pair->key.len;
+  memcpy(&pair->tombstone, &ca->data[cursor], sizeof(pair->tombstone));
+  cursor += sizeof(pair->tombstone);
+  // memcpy(&pair->value.len, &ca->data[ca->cursor], kLStringLenSize);
+  // ca->cursor += kLStringLenSize;
+}
+
+char *decompress_data_block(char *data_block) {}
+
+struct ByteRing *decompress_block_br(char *block, int *compressed_block_size,
+                                     int *data_len) {
+  memcpy(compressed_block_size, block, sizeof(*compressed_block_size));
+  block += sizeof(*compressed_block_size);
+  memcpy(data_len, block, sizeof(*data_len));
+  block += sizeof(*data_len);
+
+  struct ByteRing *decompressed = byte_ring_init(*compressed_block_size);
+
+  LZ4_decompress_safe(block, decompressed->data, *data_len,
+                      *compressed_block_size);
+  decompressed->start = 0;
+  decompressed->size = *compressed_block_size;
+  return decompressed;
+}
+
 char *decompress_block(char *block, int *compressed_block_size, int *data_len) {
   memcpy(compressed_block_size, block, sizeof(*compressed_block_size));
-  block += sizeof(compressed_block_size);
+  block += sizeof(*compressed_block_size);
   memcpy(data_len, block, sizeof(*data_len));
-  block += sizeof(data_len);
+  block += sizeof(*data_len);
 
-  char *decompressed = malloc(*compressed_block_size);
-  memcpy(decompressed, block, *compressed_block_size);
+  char *decompressed = malloc(*data_len);
+  LZ4_decompress_safe(block, decompressed, *compressed_block_size, *data_len);
   return decompressed;
 }
 
 void merge_and_compact_level_zero(Array *sstables) {
   char *cursors[sstables->len];
-  char *compressed_blocks[sstables->len];
+  char *data_blocks[sstables->len];
+  u32 data_block_sizes[sstables->len];
   u32 indices[sstables->len];
   struct SSTPair pairs[sstables->len];
   for (u32 i = 0; i < sstables->len; i++) {
-    compressed_blocks[i] =
-        sstable_get_data_block(&array_index(sstables, SSTable, i));
+    data_blocks[i] = sstable_get_data_block(&array_index(sstables, SSTable, i),
+                                            &data_block_sizes[i]);
+    cursors[i] = data_blocks[i];
     indices[i] = 0;
   }
-
-  for (u32 i = 0; i < sstables->len; i++) {
-    int cbs;
-    int dl;
-    // todo: repeatedly decompress until done
-    // may need size of entire data block to know when to stop
-    // diff between single compressed block AND entire data block
-    decompress_block(compressed_blocks[i], &cbs, &dl);
-  }
+  // for (u32 i = 0; i < sstables->len; i++);
+  //
+  // for (u32 i = 0; i < sstables->len; i++) {
+  //   int cbs;
+  //   int dl;
+  //   // todo: repeatedly decompress until done
+  //   // may need size of entire data block to know when to stop
+  //   // diff between single compressed block AND entire data block
+  //   //
+  //   // compressed_size real_size <data>
+  //   // compressed_size real_size <data>
+  //   // ...
+  //   // /DONE
+  //   // <index_block>
+  //   decompress_block(data_blocks[i], &cbs, &dl);
+  // }
 
   FILE *out = fopen("out.sst", "a");
 
-  for (u32 i = 0; i < sstables->len; i++) {
-    SSTPair_deserialize_without_vals(&pairs[i], compressed_blocks[i]);
-  }
+  Array *batch = array_sized_new(kBatchSize, sizeof(struct SSTPair));
+  struct CursorArray dc_block_cursors[sstables->len];
+  memset(dc_block_cursors, 0, sizeof(dc_block_cursors));
+  u32 batch_size_in_bytes = 0;
+
+  int iteration = 1;
   while (1) {
+    printf("Iteration = %d\n", iteration);
+    int processed = 0;
+    for (u32 i = 0; i < sstables->len; i++) {
+
+      printf("[%d] ptrdiff cursors - data_blocks = %d\n", i,
+             (cursors[i] - data_blocks[i]));
+      printf("[%d] size= %d\n", i,
+             (data_block_sizes[i]));
+      if (cursors[i] - data_blocks[i] >= data_block_sizes[i]) {
+        printf("done processing idx=%d\n", i);
+        continue;
+      }
+      processed++;
+      int compressed_block_size;
+      int uncompressed_size;
+      if (dc_block_cursors[i].cursor == dc_block_cursors[i].size) {
+
+        printf("iter=%d ssidx=%d cursor==size\n", iteration, i);
+        dc_block_cursors[i].cursor = 0;
+        dc_block_cursors[i].data = decompress_block(
+            cursors[i], &compressed_block_size, &uncompressed_size);
+        cursors[i] += compressed_block_size;
+        dc_block_cursors[i].size = uncompressed_size;
+      }
+      // char *decompressed = decompress_block(cursors[i],
+      // &compressed_block_size,
+      //                                       &uncompressed_size);
+
+      SSTPair_deserialize_without_vals_ca(&pairs[i], &dc_block_cursors[i]);
+      // free(decompressed);
+    }
+    if (processed == 0) {
+      break;
+    }
     LString min_key = pairs[0].key;
     u32 min_index = 0;
     for (u32 i = 1; i < sstables->len; i++) {
@@ -634,14 +732,85 @@ void merge_and_compact_level_zero(Array *sstables) {
         min_index = i;
       }
     }
-    compressed_blocks[min_index] +=
-        pairs[min_index].key.len + pairs[min_index].value.len +
-        2 * kLStringLenSize + sizeof(pairs[min_index].tombstone);
-    SSTPair_deserialize_without_vals(&pairs[min_index],
-                                     compressed_blocks[min_index]);
-    fwrite(min_key.data, min_key.len, 1, out);
+    // jump to value
+    dc_block_cursors[min_index].cursor += kTagSize + kLStringLenSize +
+                                          min_key.len +
+                                          sizeof(pairs[min_index].tombstone);
+
+    printf("iter=%d min_idx=%d dc[0..32]=%.*s\n", iteration, min_index, 32,
+           dc_block_cursors[min_index].data +
+               dc_block_cursors[min_index].cursor);
+    printf("++ iter=%d min_idx=%d dc[0..32]=%.*x\n", iteration, min_index, 32,
+           dc_block_cursors[min_index].data +
+               dc_block_cursors[min_index].cursor);
+
+    // get value
+    LString value;
+    memcpy(
+        &value.len,
+        &dc_block_cursors[min_index].data[dc_block_cursors[min_index].cursor],
+        kLStringLenSize);
+    dc_block_cursors[min_index].cursor += kLStringLenSize;
+    value.data = malloc(value.len);
+    memcpy(
+        value.data,
+        &dc_block_cursors[min_index].data[dc_block_cursors[min_index].cursor],
+        value.len);
+    dc_block_cursors[min_index].cursor += value.len;
+    pairs[min_index].value = value;
+
+    batch_size_in_bytes += SSTPair_get_size(&pairs[min_index]);
+
+    printf("pairs[min_index]\n");
+    SSTPair_print(&pairs[min_index]);
+
+    array_push(batch, &pairs[min_index]);
+    if (batch->len == kBatchSize) {
+      // compress and dump
+      // compress_and_write(batch, batch_size_in_bytes, out);
+
+      for (u32 i = 0; i < batch->len; i++) {
+        struct SSTPair batch_item = array_index(batch, struct SSTPair, i);
+        printf("Batch item [%i]\n", i);
+        printf("key=%.*s value=%.*s\n", batch_item.key.len, batch_item.key.data,
+               batch_item.value.len, batch_item.value.data);
+        fwrite(batch_item.key.data, batch_item.key.len, 1, out);
+        fwrite(batch_item.value.data, batch_item.value.len, 1, out);
+      }
+      fflush(out);
+      printf("Batch dumped!\n");
+      array_make_empty(batch);
+      batch_size_in_bytes = 0;
+    }
+    iteration++;
+  }
+
+  for (u32 i = 0; i < sstables->len; i++) {
+    free(data_blocks[i]);
   }
 }
+
+//
+//
+//
+//
+// SST1                        SST2
+// compressed_block_1          compressed_block_1
+//   antioch, av                 alabama, av
+//   burma, bv                   boston, bv
+//   cyprus, cv                  canada, cv
+// compressed_block_2          compressed_block_2
+//   danzig, dv                  dorset, dv
+//   estonia, ev                 enterprise, ev
+//   finland, fv                 fiji, fv
+//
+// merged
+//   alabama, avdst
+//   antioch, av
+//   boston, bv
+//   burma, bv
+//   canada, cv
+//   cyprus, cv
 
 // int main() {
 //   srand(time(0));
