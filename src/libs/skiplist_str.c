@@ -157,16 +157,20 @@ i32 sl_s_insert_internal(SkipList *sl, LString *key, LString *value,
       //       printf("EARLY RET!!\n");
       //       printf("=== L%d key(%.*s) > curr->key(%.*s)\n", level, key->len,
       // key->data, curr->key->len, curr->key->data);
-      if (tombstone == 1) {
-        curr->tombstone = 1;
+
+      curr->tombstone = tombstone;
+      if (value)
+        sl->size_in_bytes += value->len;
+      if (curr->value) {
+        sl->size_in_bytes -= curr->value->len;
         lstring_free(curr->value);
-        return 0;
-      } else {
-        lstring_free(curr->value);
-        curr->value = value;
-        return 0;
       }
+      curr->value = value; // value null in case of tombstone 1
+      return 0;
     }
+  }
+  if (tombstone == 1) {
+      return 1; // does not exist, cannot delete
   }
   int sum = 1;
   for (int i = 0; i < sl->num_levels - 1; i++) {
