@@ -77,6 +77,8 @@ void array_push(Array *array, void *const element) {
   array_push_many(array, element, 1);
 }
 
+void array_make_empty(Array *array) { array->len = 0; }
+
 void array_set_length(Array *array, u64 length) {
   FullArray *farray = (FullArray *)array;
   if (length == farray->len)

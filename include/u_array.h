@@ -23,5 +23,6 @@ void       array_push_many  (Array *array, const void *start, u64 n);
 i32        array_copy_n     (Array *src, void *dest, u64 n);
 i32        array_pop_first  (Array *array, void *ret_val);
 i32        array_pop_last   (Array *array, void *ret_val);
+void       array_make_empty (Array *array);
 
 #endif // ARRAY_H
