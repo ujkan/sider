@@ -596,7 +596,7 @@ char *sstable_get_data_block(SSTable *sst, u32 *data_block_size) {
   fseek(fptr, 0, SEEK_SET);
 
   char *data_block = malloc(index_offset);
-  *data_block_size = index_offset - 8;
+  *data_block_size = index_offset;
   fread(data_block, 1, index_offset, fptr);
   return data_block;
 }
@@ -698,7 +698,7 @@ void merge_and_compact_level_zero(Array *sstables) {
              (cursors[i] - data_blocks[i]));
       printf("[%d] size= %d\n", i,
              (data_block_sizes[i]));
-      if (cursors[i] - data_blocks[i] >= data_block_sizes[i]) {
+      if (cursors[i] - data_blocks[i]  >= data_block_sizes[i]) {
         printf("done processing idx=%d\n", i);
         continue;
       }
@@ -720,9 +720,6 @@ void merge_and_compact_level_zero(Array *sstables) {
 
       SSTPair_deserialize_without_vals_ca(&pairs[i], &dc_block_cursors[i]);
       // free(decompressed);
-    }
-    if (processed == 0) {
-      break;
     }
     LString min_key = pairs[0].key;
     u32 min_index = 0;
@@ -781,6 +778,7 @@ void merge_and_compact_level_zero(Array *sstables) {
       printf("Batch dumped!\n");
       array_make_empty(batch);
       batch_size_in_bytes = 0;
+      break;
     }
     iteration++;
   }
