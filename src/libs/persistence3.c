@@ -34,6 +34,7 @@
  *
  */
 
+#include "block_item.h"
 #include "bytering.h"
 #include "lstr.h"
 #include "persistence.h"
@@ -143,6 +144,109 @@ u32 KeyOffsetPair_serialize(struct KeyOffsetPair *pair, FILE *cursor) {
 #define MAX_BLOCK_SIZE (320 * 1024)
 #define MAX_COMP_SIZE (MAX_BLOCK_SIZE + (MAX_BLOCK_SIZE / 255) + 16)
 
+void compress_and_write_v3(Array *sst_pairs, int data_len, char *write_buf) {
+  // convert sst_pairs[0] to BlockEntry
+  // set prev = sst_pairs[0].key
+  // for i=1 to pairs.len
+  //   curr = pairs[i]
+  //   shared = find_shared_prefix(curr, prev)
+  //   suffix_len = curr.len - shared
+  //   blockItem = {
+  //     shared,
+  //     suffix_len,
+  //     curr.key[shared:],
+  //     curr.value.len,
+  //     curr.value
+  //   }
+  //   out.append(blockItem.serialize())
+  //
+  // that's without the restart points
+  // let's say we choose every 16 keys to restart
+  // then in loop, add check
+  // if i % 16 == 0 and i > 0
+  //   blockItem = {
+  //     0,
+  //     curr.key.len
+  //     curr.key,
+  //     curr.value.len,
+  //     curr.value
+  //   }
+  //   restartPoint = {
+  //     curr.key,
+  //     out.cursor
+  //   }
+  //   restartPoints.append(restartPoint)
+  //
+}
+
+void compress_and_write_v2(Array *sst_pairs, int data_len, char *write_buf) {
+  if (!t_block_buf) {
+    t_block_buf = malloc(MAX_BLOCK_SIZE);
+    t_comp_buf = malloc(MAX_COMP_SIZE);
+  }
+
+  // 2. Safety check
+  if (data_len > MAX_BLOCK_SIZE)
+    return;
+  char *block_buf = t_block_buf;
+  char *compressed_block = t_comp_buf;
+  char *cursor = block_buf;
+
+  struct SSTPair curr = array_index(sst_pairs, struct SSTPair, 0);
+  u32 shared = 0;
+
+  struct BlockItem b_item = {};
+  b_item.shared = shared;
+  b_item.suffix_len = curr.key.len;
+  b_item.suffix = curr.key.data;
+  b_item.value_len = curr.value.len;
+  b_item.value = curr.value.data;
+  LString *b_item_serialized = BlockItem_serialize(&b_item);
+  memcpy(cursor, b_item_serialized->data, b_item_serialized->len);
+  cursor += b_item_serialized->len;
+  free(b_item_serialized->data);
+  free(b_item_serialized);
+
+  // TODO: for nicer programming experience, it is probably better in code to
+  // convert between representations, i.e. convert SSTPair to some new struct
+  // like BlockEntry and then rely on special methods to serialize it
+  // that way you write the code once, test it, make sure it works right
+  // and rely on simpler code to map from SSTPair to BlockEntry!
+  // these are just data transformations, mappings! should be much simpler to
+  // code
+  LString *prev = &curr.key;
+  for (int j = 1; j < sst_pairs->len; j++) {
+    struct SSTPair data = array_index(sst_pairs, struct SSTPair, j);
+    u16 shared = 0;
+    for (int k = 0; k < data.key.len && k < prev->len; k++) {
+      if (data.key.data[k] != prev->data[k]) {
+        break;
+      }
+      shared++;
+    }
+    u16 suffix_len = data.key.len - shared;
+
+    memset(&b_item, 0, sizeof(b_item));
+    b_item.shared = shared;
+    b_item.suffix_len = suffix_len;
+    // we store suffix only, so must offset key.data by shared!
+    b_item.suffix = curr.key.data + shared;
+    b_item.value_len = curr.value.len;
+    b_item.value = curr.value.data;
+    b_item_serialized = BlockItem_serialize(&b_item);
+    memcpy(cursor, b_item_serialized->data, b_item_serialized->len);
+    free(b_item_serialized->data);
+    free(b_item_serialized);
+  }
+
+  int compressed_block_size = LZ4_compress_default(
+      block_buf, compressed_block, data_len, LZ4_compressBound(data_len));
+  fwrite(&compressed_block_size, 1, sizeof(compressed_block_size), fptr);
+  fwrite(&data_len, 1, sizeof(data_len), fptr);
+  fwrite(compressed_block, 1, compressed_block_size, fptr);
+  array_set_length(sst_pairs, 0);
+}
+
 void compress_and_write(Array *sst_pairs, int data_len, FILE *fptr) {
   if (!t_block_buf) {
     t_block_buf = malloc(MAX_BLOCK_SIZE);
@@ -168,6 +272,119 @@ void compress_and_write(Array *sst_pairs, int data_len, FILE *fptr) {
   fwrite(&data_len, 1, sizeof(data_len), fptr);
   fwrite(compressed_block, 1, compressed_block_size, fptr);
   array_set_length(sst_pairs, 0);
+}
+
+SSTable *dump_memtable_to_sst_v2(SkipList *mt, LString *filepath) {
+  pthread_t thread_id = pthread_self();
+
+  SSTable *sst = malloc(sizeof(SSTable));
+  sst->filepath = filepath;
+
+  char *fp __attribute__((__cleanup__(cleanup_char_buf)));
+  fp = lstring_to_cstr(filepath); // 0-terminated means can copy 127 chars max
+  FILE *fptr __attribute__((__cleanup__(cleanup_file)));
+  fptr = fopen(fp, "a");
+
+  if (fptr == NULL) {
+    return NULL;
+  }
+  sst->fd = fileno(fptr);
+
+  LString **keys;
+  LString **values;
+  u32 out_count;
+  sl_s_get_data(mt, &keys, &values, &out_count);
+
+  if (out_count == 0) {
+    free(sst);
+    free(keys);
+    free(values);
+    return 0;
+  }
+
+  // Record the starting position to calculate total bytes written at the
+  // end
+  long start_pos = ftell(fptr);
+
+  int idx_struct_size = sizeof(struct KeyOffsetPair);
+  Array *offset_sparse_index = array_sized_new(out_count, idx_struct_size);
+
+  u32 index_size = 0;
+  u32 index_offset = 0;
+  u32 kFooterSize = 4 + 4; // 4 bytes for size; 4 for offset
+  int data_len = 0;
+
+  char writebuf[8 * 1024];
+
+  Array *data_blocks = array_sized_new(
+      kBatchSize,
+      sizeof(struct SSTPair)); // k_max_key_len + k_max_value_len (upper bound
+                               // for block)
+  // --- Write the data and build the index ---
+  for (u32 i = 0; i < out_count; i++) {
+
+    if (i > 0 && i % kBatchSize == 0) {
+      compress_and_write(data_blocks, data_len, fptr);
+      data_len = 0;
+    }
+    if (i % kBatchSize == 0) {
+      u32 current_offset = (u32)(ftell(fptr) - start_pos);
+      array_push(
+          offset_sparse_index,
+          &(struct KeyOffsetPair){.key = *keys[i], .offset = current_offset});
+    }
+    LString *key = keys[i];
+    LString *value = values[i];
+    struct SSTPair tmpdata = {0};
+    tmpdata.tag = kPairTag;
+    tmpdata.key = *key;
+    tmpdata.value = *value;
+    array_push(data_blocks, &tmpdata);
+    data_len += SSTPair_get_size(&tmpdata);
+    //     printf("DATA_LEN: %d\n", data_len);
+  }
+  compress_and_write(data_blocks, data_len, fptr);
+  free(data_blocks->data);
+  free(data_blocks);
+
+  index_offset = ftell(fptr);
+
+  // --- Write the index ---
+  u32 index_count = (out_count - 1) / kBatchSize + 1;
+  printf("Writing index...\n");
+  for (u32 i = 0; i < index_count; i++) {
+    struct KeyOffsetPair *pair =
+        &array_index(offset_sparse_index, struct KeyOffsetPair, i);
+
+    printf("index[%d]: key len=%d data=%.*s offset=%d\n", i, pair->key.len,
+           pair->key.len, pair->key.data, pair->offset);
+    index_size += KeyOffsetPair_serialize(pair, fptr);
+  }
+
+  // write footer
+  //   printf("index_offset: %d\n", index_offset);
+  //   printf("index_size: %d\n", index_size);
+  fwrite(&index_offset, sizeof(index_offset), 1, fptr);
+  fwrite(&index_size, sizeof(index_size), 1, fptr);
+
+  // Return total bytes written
+  sst->size = (u32)(ftell(fptr) - start_pos);
+  // printf("[THREAD %lu] dump_memtable_to_sst: Successfully wrote %u "
+  //        "bytes to '%s', closing file\n",
+  //        thread_id, sst->size, fp);
+  // printf("[THREAD %lu] dump_memtable_to_sst: Returning SST with "
+  //        "filepath = '%s'\n ",
+  //        thread_id, sst->filepath->data);
+  array_set_length(offset_sparse_index, 0);
+  free(offset_sparse_index->data);
+  free(offset_sparse_index);
+  // for (u32 i = 0; i < out_count; i++) {
+  //   free(keys[i]->data);
+  //   free(values[i]->data);
+  // }
+  free(keys);
+  free(values);
+  return sst;
 }
 
 SSTable *dump_memtable_to_sst(SkipList *mt, LString *filepath) {
@@ -696,9 +913,8 @@ void merge_and_compact_level_zero(Array *sstables) {
 
       printf("[%d] ptrdiff cursors - data_blocks = %d\n", i,
              (cursors[i] - data_blocks[i]));
-      printf("[%d] size= %d\n", i,
-             (data_block_sizes[i]));
-      if (cursors[i] - data_blocks[i]  >= data_block_sizes[i]) {
+      printf("[%d] size= %d\n", i, (data_block_sizes[i]));
+      if (cursors[i] - data_blocks[i] >= data_block_sizes[i]) {
         printf("done processing idx=%d\n", i);
         continue;
       }
