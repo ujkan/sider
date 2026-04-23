@@ -72,6 +72,10 @@ static void cleanup_file(FILE **ptr) {
   fclose(*ptr);
 }
 
+static void cleanup_LString(LString *lstr) {
+  //   printf("FREEINGBUFFER\n");
+  lstring_free(lstr);
+}
 struct Segment {
   int fd;
   char *filename;
@@ -204,8 +208,8 @@ void compress_and_write_v2(Array *sst_pairs, int data_len, char *write_buf) {
   LString *b_item_serialized = BlockItem_serialize(&b_item);
   memcpy(cursor, b_item_serialized->data, b_item_serialized->len);
   cursor += b_item_serialized->len;
-  free(b_item_serialized->data);
-  free(b_item_serialized);
+  // free after copy
+  lstring_free(b_item_serialized);
 
   // TODO: for nicer programming experience, it is probably better in code to
   // convert between representations, i.e. convert SSTPair to some new struct
@@ -238,8 +242,8 @@ void compress_and_write_v2(Array *sst_pairs, int data_len, char *write_buf) {
     // then memcpy into cursor
     // would be nice to have a serialize into a char* directly
     memcpy(cursor, b_item_serialized->data, b_item_serialized->len);
-    free(b_item_serialized->data);
-    free(b_item_serialized);
+    // free after copy
+    lstring_free(b_item_serialized);
   }
 
   int compressed_block_size = LZ4_compress_default(
