@@ -195,7 +195,7 @@ void compress_and_write_v2(Array *sst_pairs, int data_len, char *write_buf) {
   struct SSTPair curr = array_index(sst_pairs, struct SSTPair, 0);
   u32 shared = 0;
 
-  struct BlockItem b_item = {};
+  struct BlockItem b_item = {0};
   b_item.shared = shared;
   b_item.suffix_len = curr.key.len;
   b_item.suffix = curr.key.data;
@@ -215,7 +215,7 @@ void compress_and_write_v2(Array *sst_pairs, int data_len, char *write_buf) {
   // these are just data transformations, mappings! should be much simpler to
   // code
   LString *prev = &curr.key;
-  for (int j = 1; j < sst_pairs->len; j++) {
+  for (u32 j = 1; j < sst_pairs->len; j++) {
     struct SSTPair data = array_index(sst_pairs, struct SSTPair, j);
     u16 shared = 0;
     for (int k = 0; k < data.key.len && k < prev->len; k++) {
