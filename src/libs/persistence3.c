@@ -625,12 +625,12 @@ FILE *sstable_open_file(SSTable *sst) {
 }
 
 LString *search_in_sst(SSTable sst, LString *key) {
-  FILE *fptr = sstable_open_file(&sst);
+  FILE *fptr __attribute__((__cleanup__(cleanup_file)));
+  fptr = sstable_open_file(&sst);
   if (fptr == NULL) {
     int err = errno;
     printf("ERROR [%d]: cannot open file '%.*s'\n", err, sst.filepath->len,
            sst.filepath->data);
-    fclose(fptr);
     return NULL;
   }
 
@@ -729,7 +729,6 @@ LString *search_in_sst(SSTable sst, LString *key) {
       free(keys);
       free(offsets->data);
       free(offsets);
-      fclose(fptr);
       return value;
     } else {
       u16 value_len;
@@ -748,7 +747,6 @@ LString *search_in_sst(SSTable sst, LString *key) {
   free(keys);
   free(offsets->data);
   free(offsets);
-  fclose(fptr);
   return NULL;
 }
 
