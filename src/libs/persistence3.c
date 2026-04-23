@@ -242,6 +242,7 @@ void compress_and_write_v2(Array *sst_pairs, int data_len, char *write_buf) {
     // then memcpy into cursor
     // would be nice to have a serialize into a char* directly
     memcpy(cursor, b_item_serialized->data, b_item_serialized->len);
+    cursor += b_item_serialized->len;
     // free after copy
     lstring_free(b_item_serialized);
   }
