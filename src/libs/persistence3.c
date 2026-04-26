@@ -34,11 +34,13 @@
  *
  */
 
+#include "block.h"
 #include "block_item.h"
 #include "bytering.h"
 #include "lstr.h"
 #include "persistence.h"
 #include "skiplist_str.h"
+#include "stb_ds.h"
 #include "u_array.h"
 #include <errno.h>
 #include <lz4.h>
@@ -199,17 +201,23 @@ void compress_and_write_v2(Array *sst_pairs, int data_len, char *write_buf) {
   struct SSTPair curr = array_index(sst_pairs, struct SSTPair, 0);
   u32 shared = 0;
 
+  struct DataBlock *blocks = NULL;
+  arrsetcap(blocks, 128);
+  struct DataBlock *curr_block = &blocks[0];
+  DataBlock_init(curr_block);
+
   struct BlockItem b_item = {0};
   b_item.shared = shared;
   b_item.suffix_len = curr.key.len;
   b_item.suffix = curr.key.data;
   b_item.value_len = curr.value.len;
   b_item.value = curr.value.data;
-  LString *b_item_serialized = BlockItem_serialize(&b_item);
-  memcpy(cursor, b_item_serialized->data, b_item_serialized->len);
-  cursor += b_item_serialized->len;
-  // free after copy
-  lstring_free(b_item_serialized);
+  DataBlock_append_item(curr_block, &b_item);
+  // LString *b_item_serialized = BlockItem_serialize(&b_item);
+  // memcpy(cursor, b_item_serialized->data, b_item_serialized->len);
+  // cursor += b_item_serialized->len;
+  // // free after copy
+  // lstring_free(b_item_serialized);
 
   // TODO: for nicer programming experience, it is probably better in code to
   // convert between representations, i.e. convert SSTPair to some new struct
@@ -220,6 +228,10 @@ void compress_and_write_v2(Array *sst_pairs, int data_len, char *write_buf) {
   // code
   LString *prev = &curr.key;
   for (u32 j = 1; j < sst_pairs->len; j++) {
+    if (j % 128 == 0) {
+      curr_block = &blocks[1];
+      DataBlock_init(curr_block);
+    }
     struct SSTPair data = array_index(sst_pairs, struct SSTPair, j);
     u16 shared = 0;
     for (int k = 0; k < data.key.len && k < prev->len; k++) {
@@ -237,21 +249,23 @@ void compress_and_write_v2(Array *sst_pairs, int data_len, char *write_buf) {
     b_item.suffix = curr.key.data + shared;
     b_item.value_len = curr.value.len;
     b_item.value = curr.value.data;
-    b_item_serialized = BlockItem_serialize(&b_item);
-    // TODO: yes not ideal that we first memcpy into an LString and
-    // then memcpy into cursor
-    // would be nice to have a serialize into a char* directly
-    memcpy(cursor, b_item_serialized->data, b_item_serialized->len);
-    cursor += b_item_serialized->len;
-    // free after copy
-    lstring_free(b_item_serialized);
+    DataBlock_append_item(curr_block, &b_item);
+    // b_item_serialized = BlockItem_serialize(&b_item);
+    // // TODO: yes not ideal that we first memcpy into an LString and
+    // // then memcpy into cursor
+    // // would be nice to have a serialize into a char* directly
+    // memcpy(cursor, b_item_serialized->data, b_item_serialized->len);
+    // cursor += b_item_serialized->len;
+    // // free after copy
+    // lstring_free(b_item_serialized);
   }
 
-  int compressed_block_size = LZ4_compress_default(
-      block_buf, compressed_block, data_len, LZ4_compressBound(data_len));
-  fwrite(&compressed_block_size, 1, sizeof(compressed_block_size), fptr);
-  fwrite(&data_len, 1, sizeof(data_len), fptr);
-  fwrite(compressed_block, 1, compressed_block_size, fptr);
+  for (int i = 0; i < arrlen(blocks); i++) {
+    struct DataBlock b = blocks[i];
+    LString *compressed_block = DataBlock_compress(&b);
+    memcpy(write_buf, compressed_block->data, compressed_block->len);
+  }
+
   array_set_length(sst_pairs, 0);
 }
 
@@ -626,6 +640,7 @@ FILE *sstable_open_file(SSTable *sst) {
 
 LString *search_in_sst(SSTable sst, LString *key) {
   FILE *fptr __attribute__((__cleanup__(cleanup_file)));
+  //
   fptr = sstable_open_file(&sst);
   if (fptr == NULL) {
     int err = errno;
