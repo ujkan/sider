@@ -37,6 +37,7 @@
 #include "block.h"
 #include "block_item.h"
 #include "bytering.h"
+#include "index_block.h"
 #include "lstr.h"
 #include "persistence.h"
 #include "skiplist_str.h"
@@ -186,17 +187,8 @@ void compress_and_write_v3(Array *sst_pairs, int data_len, char *write_buf) {
 }
 
 void compress_and_write_v2(Array *sst_pairs, int data_len, char *write_buf) {
-  if (!t_block_buf) {
-    t_block_buf = malloc(MAX_BLOCK_SIZE);
-    t_comp_buf = malloc(MAX_COMP_SIZE);
-  }
-
-  // 2. Safety check
   if (data_len > MAX_BLOCK_SIZE)
     return;
-  char *block_buf = t_block_buf;
-  char *compressed_block = t_comp_buf;
-  char *cursor = block_buf;
 
   struct SSTPair curr = array_index(sst_pairs, struct SSTPair, 0);
   u32 shared = 0;
@@ -227,9 +219,15 @@ void compress_and_write_v2(Array *sst_pairs, int data_len, char *write_buf) {
   // these are just data transformations, mappings! should be much simpler to
   // code
   LString *prev = &curr.key;
+  // TODO: should we copy curr.key here or just "borrow" it or get its ref?
+  struct IndexItem curr_index_item = {.key = &curr.key, .offset = 0};
+  struct IndexBlock i_block = {0};
+  arrsetcap(i_block.items, 128);
+  arrpush(i_block.items, curr_index_item);
+  u32 block_idx = 1;
   for (u32 j = 1; j < sst_pairs->len; j++) {
     if (j % 128 == 0) {
-      curr_block = &blocks[1];
+      curr_block = &blocks[block_idx++];
       DataBlock_init(curr_block);
     }
     struct SSTPair data = array_index(sst_pairs, struct SSTPair, j);
@@ -250,6 +248,10 @@ void compress_and_write_v2(Array *sst_pairs, int data_len, char *write_buf) {
     b_item.value_len = curr.value.len;
     b_item.value = curr.value.data;
     DataBlock_append_item(curr_block, &b_item);
+    if (j % 128 == 0) {
+      curr_index_item.key = &curr.key;
+      arrpush(i_block.items, curr_index_item);
+    }
     // b_item_serialized = BlockItem_serialize(&b_item);
     // // TODO: yes not ideal that we first memcpy into an LString and
     // // then memcpy into cursor
@@ -260,9 +262,12 @@ void compress_and_write_v2(Array *sst_pairs, int data_len, char *write_buf) {
     // lstring_free(b_item_serialized);
   }
 
-  for (int i = 0; i < arrlen(blocks); i++) {
+  LString *compressed_block = DataBlock_compress(&blocks[0]);
+  memcpy(write_buf, compressed_block->data, compressed_block->len);
+  for (int i = 1; i < arrlen(blocks); i++) {
+    i_block.items[i].offset = compressed_block->len;
     struct DataBlock b = blocks[i];
-    LString *compressed_block = DataBlock_compress(&b);
+    compressed_block = DataBlock_compress(&b);
     memcpy(write_buf, compressed_block->data, compressed_block->len);
   }
 
