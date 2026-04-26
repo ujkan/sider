@@ -1,6 +1,8 @@
+#include "types.h"
 #include "lstr.h"
-#include <stdlib.h>
-#include <string.h>
+
+#ifndef BLOCK_ITEM_H
+#define BLOCK_ITEM_H
 
 struct BlockItem {
   u16 shared;
@@ -11,3 +13,5 @@ struct BlockItem {
 };
 
 LString *BlockItem_serialize(struct BlockItem *item);
+
+#endif // BLOCK_ITEM_H
