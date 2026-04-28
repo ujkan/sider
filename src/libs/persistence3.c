@@ -280,13 +280,10 @@ void compress_and_write_v2(Array *sst_pairs, int data_len, char *write_buf,
   }
 
   LString *compressed_block = DataBlock_compress(block);
+  // TODO: use slice/bytebuf instead of write_buf
   memcpy(write_buf, compressed_block->data, compressed_block->len);
-
   *len += compressed_block->len;
   write_buf += compressed_block->len;
-  printf("ARRLEN(BLOCKS): %d\n", arrlen(block->blocks));
-  printf("ARRLEN(I_BLOCKS): %d\n", arrlen(i_block.items));
-
   array_set_length(sst_pairs, 0);
 }
 
