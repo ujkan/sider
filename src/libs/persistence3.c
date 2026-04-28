@@ -37,6 +37,7 @@
 #include "block.h"
 #include "block_item.h"
 #include "bytering.h"
+#include "hex_dump.h"
 #include "index_block.h"
 #include "lstr.h"
 #include "persistence.h"
@@ -203,16 +204,8 @@ void compress_and_write_v2(Array *sst_pairs, int data_len, char *write_buf,
   // to them exists via block->blocks[i]
   arrpush(block->blocks, curr_block_single);
 
-  struct BlockItem b_item = {0};
-
   DataBlockSingle_append_entry(&curr_block_single, &curr.key, &curr.value,
                                NULL);
-  b_item.shared = shared;
-  b_item.suffix_len = curr.key.len;
-  b_item.suffix = curr.key.data;
-  b_item.value_len = curr.value.len;
-  b_item.value = curr.value.data;
-  DataBlockSingle_append_item(&curr_block_single, &b_item);
   // LString *b_item_serialized = BlockItem_serialize(&b_item);
   // memcpy(cursor, b_item_serialized->data, b_item_serialized->len);
   // cursor += b_item_serialized->len;
@@ -270,12 +263,12 @@ void compress_and_write_v2(Array *sst_pairs, int data_len, char *write_buf,
       DataBlockSingle_init(&curr_block_single);
       arrpush(block->blocks, curr_block_single);
     }
-    struct SSTPair data = array_index(sst_pairs, struct SSTPair, j);
+    curr = array_index(sst_pairs, struct SSTPair, j);
     prev = &array_index(sst_pairs, struct SSTPair, j - 1).key;
-    DataBlockSingle_append_entry(&curr_block_single, &data.key, &data.value,
+    DataBlockSingle_append_entry(&curr_block_single, &curr.key, &curr.value,
                                  prev);
     if (j % 128 == 0) {
-      curr_index_item.key = &data.key;
+      curr_index_item.key = &curr.key;
       arrpush(i_block.items, curr_index_item);
     }
     // b_item_serialized = BlockItem_serialize(&b_item);
@@ -611,44 +604,6 @@ size_t serialize_skip_list(SkipList *mt, char *buf) {
 
   return buf - start;
 }
-void hex_dump(const char *desc, const void *addr, int len) {
-  int i;
-  unsigned char buff[17];
-  const unsigned char *pc = (const unsigned char *)addr;
-
-  // Output description if provided
-  if (desc != NULL)
-    printf("%s:\n", desc);
-
-  for (i = 0; i < len; i++) {
-    // Print offset at the start of every line
-    if ((i % 16) == 0) {
-      if (i != 0)
-        printf("  %s\n", buff);
-      printf("  %04x ", i);
-    }
-
-    // Print hex value
-    printf(" %02x", pc[i]);
-
-    // Store printable character for the right side
-    if ((pc[i] < 0x20) || (pc[i] > 0x7e)) {
-      buff[i % 16] = '.';
-    } else {
-      buff[i % 16] = pc[i];
-    }
-    buff[(i % 16) + 1] = '\0';
-  }
-
-  // Pad out last line if not exactly 16 characters
-  while ((i % 16) != 0) {
-    printf("   ");
-    i++;
-  }
-
-  // Final print of the ASCII buffer
-  printf("  %s\n", buff);
-}
 
 void deserialize_index(char *index, int len, Array *keys_out,
                        Array *offsets_out) {
@@ -693,7 +648,7 @@ LString *search_in_sst(SSTable sst, LString *key) {
   char *index = malloc(index_size);
   fread(index, index_size, 1, fptr);
 
-  hex_dump("index", index, index_size);
+  hex_dump(index, index_size);
   Array *keys = array_sized_new(32, sizeof(LString));
   Array *offsets = array_sized_new(32, sizeof(u32));
 

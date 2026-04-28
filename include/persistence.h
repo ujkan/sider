@@ -15,6 +15,8 @@ typedef struct {
 } SSTable;
 
 SSTable *dump_memtable_to_sst(SkipList *sl, LString *filepath);
+void compress_and_write_v2(Array *sst_pairs, int data_len, char *write_buf,
+                           int *len);
 LString* search_in_sst(SSTable sst, LString *key);
 void merge_and_compact_level_zero(Array *sstables);
 
