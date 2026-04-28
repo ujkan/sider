@@ -1,27 +1,34 @@
+#ifndef BLOCK_H
+#define BLOCK_H
+
 #include "types.h"
 #include "lstr.h"
 #include "block_item.h"
-#include "stb_ds.h"
 
-#ifndef BLOCK_H
-#define BLOCK_H
 
 struct RestartPoint {
   LString key;
   u32 offset;
 };
 
-struct DataBlock {
+struct DataBlockSingle {
   struct BlockItem *items; // type BlockItem
   struct RestartPoint *restart_points; // type RestartPoint
   int checksum;
   // other metadata
 };
 
-void DataBlock_init(struct DataBlock *block);
+struct DataBlock {
+    struct DataBlockSingle *blocks;
+};
+
+void DataBlockSingle_init(struct DataBlockSingle *block);
+LString *DataBlockSingle_serialize(struct DataBlockSingle *block);
 LString *DataBlock_compress(struct DataBlock *block);
-void DataBlock_append_item(struct DataBlock *block, struct BlockItem *item); // implicitly manages RestartPoints !
-void DataBlock_append_key(struct DataBlock *block, struct LString *key, struct LString *prev); // nice helper
-LString* DataBlock_to_LString(struct DataBlock *block);
+void DataBlockSingle_append_item(struct DataBlockSingle *block, struct BlockItem *item); // implicitly manages RestartPoints !
+void DataBlockSingle_append_entry(struct DataBlockSingle *block, LString *key, LString *value, LString *prev); // nice helper
+LString* DataBlockSingle_to_LString(struct DataBlockSingle *block);
+
+LString *RestartPoint_serialize(struct RestartPoint *rp);
 
 #endif // BLOCK_H

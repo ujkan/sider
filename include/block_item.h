@@ -1,8 +1,8 @@
-#include "types.h"
-#include "lstr.h"
-
 #ifndef BLOCK_ITEM_H
 #define BLOCK_ITEM_H
+
+#include "types.h"
+#include "lstr.h"
 
 struct BlockItem {
   u16 shared;

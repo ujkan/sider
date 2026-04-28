@@ -204,6 +204,9 @@ void compress_and_write_v2(Array *sst_pairs, int data_len, char *write_buf,
   arrpush(block->blocks, curr_block_single);
 
   struct BlockItem b_item = {0};
+
+  DataBlockSingle_append_entry(&curr_block_single, &curr.key, &curr.value,
+                               NULL);
   b_item.shared = shared;
   b_item.suffix_len = curr.key.len;
   b_item.suffix = curr.key.data;
@@ -233,59 +236,44 @@ void compress_and_write_v2(Array *sst_pairs, int data_len, char *write_buf,
     // curr = array_index(sst_pairs, struct SSTPair, j);
     // printf("CURR->KEY: %.*s\n", curr.key.len, curr.key.data);
     if (j % 128 == 0) {
-        // it is  crucial that _init sets the .items and .restart_points fields
-        // to NULL and thus arrsetcap CREATES new arrays (mallocs them)
-        // recall that the reference to the old block's items and rps remains
-        // when we append to block->blocks BY VALUE ! so the pointers are copied
-        // and thus live, but curr_block gets refreshed!
-        // essentially what we want each time is something like
-        // curr_block_single = new DataBlockSingle();
-        // where the constructor of that allocates the arrays (NEW ones)
-        // appropriately
-        // i.e. think of DataBlockSingle_init as
-        // public void DataBlockSingle() {
-        //   this.items = new ArrayList<BlockItem>();
-        //   this.restartPoints = new ArrayList<RestartPoint>();
-        // }
-        // curr_block_single = new DataBlockSingle();
-        // block.blocks.append(curr_block_single);
-        // ...
-        // curr_block_single.items.append(b_item);
-        // ---
-        // since curr_block_single is an Object, we can append to it and
-        // block.blocks.append retains it
-        // of course oen can argue that we should append once we're done
-        // attending for more "idiomatic" usage!
-        // maybe first append, and then initialize the new current block
-        // that would work if we do the following:
-        // (1) swap the order of _init and arrpush below
-        // (2) remove the arrpush before the loop
-        // (3) add a final arrpush AFTER the loop to cover the final block
-        // it depends on if we want:
-        // 1. push block before and then fill it with data
-        // 2. fill it with data then push
+      // it is  crucial that _init sets the .items and .restart_points fields
+      // to NULL and thus arrsetcap CREATES new arrays (mallocs them)
+      // recall that the reference to the old block's items and rps remains
+      // when we append to block->blocks BY VALUE ! so the pointers are copied
+      // and thus live, but curr_block gets refreshed!
+      // essentially what we want each time is something like
+      // curr_block_single = new DataBlockSingle();
+      // where the constructor of that allocates the arrays (NEW ones)
+      // appropriately
+      // i.e. think of DataBlockSingle_init as
+      // public void DataBlockSingle() {
+      //   this.items = new ArrayList<BlockItem>();
+      //   this.restartPoints = new ArrayList<RestartPoint>();
+      // }
+      // curr_block_single = new DataBlockSingle();
+      // block.blocks.append(curr_block_single);
+      // ...
+      // curr_block_single.items.append(b_item);
+      // ---
+      // since curr_block_single is an Object, we can append to it and
+      // block.blocks.append retains it
+      // of course oen can argue that we should append once we're done
+      // attending for more "idiomatic" usage!
+      // maybe first append, and then initialize the new current block
+      // that would work if we do the following:
+      // (1) swap the order of _init and arrpush below
+      // (2) remove the arrpush before the loop
+      // (3) add a final arrpush AFTER the loop to cover the final block
+      // it depends on if we want:
+      // 1. push block before and then fill it with data
+      // 2. fill it with data then push
       DataBlockSingle_init(&curr_block_single);
       arrpush(block->blocks, curr_block_single);
     }
     struct SSTPair data = array_index(sst_pairs, struct SSTPair, j);
     prev = &array_index(sst_pairs, struct SSTPair, j - 1).key;
-    u16 shared = 0;
-    for (int k = 0; k < data.key.len && k < prev->len; k++) {
-      if (data.key.data[k] != prev->data[k]) {
-        break;
-      }
-      shared++;
-    }
-    u16 suffix_len = data.key.len - shared;
-
-    memset(&b_item, 0, sizeof(b_item));
-    b_item.shared = shared;
-    b_item.suffix_len = suffix_len;
-    // we store suffix only, so must offset key.data by shared!
-    b_item.suffix = data.key.data + shared;
-    b_item.value_len = data.value.len;
-    b_item.value = data.value.data;
-    DataBlockSingle_append_item(&curr_block_single, &b_item);
+    DataBlockSingle_append_entry(&curr_block_single, &data.key, &data.value,
+                                 prev);
     if (j % 128 == 0) {
       curr_index_item.key = &data.key;
       arrpush(i_block.items, curr_index_item);
