@@ -186,17 +186,22 @@ void compress_and_write_v3(Array *sst_pairs, int data_len, char *write_buf) {
   //
 }
 
-void compress_and_write_v2(Array *sst_pairs, int data_len, char *write_buf) {
-  if (data_len > MAX_BLOCK_SIZE)
-    return;
+void compress_and_write_v2(Array *sst_pairs, int data_len, char *write_buf,
+                           int *len) {
 
   struct SSTPair curr = array_index(sst_pairs, struct SSTPair, 0);
   u32 shared = 0;
 
-  struct DataBlock *blocks = NULL;
-  arrsetcap(blocks, 128);
-  struct DataBlock *curr_block = &blocks[0];
-  DataBlock_init(curr_block);
+  struct DataBlock *block = malloc(sizeof(struct DataBlock));
+  arrsetcap(block->blocks, 128);
+  struct DataBlockSingle curr_block_single = {0};
+  DataBlockSingle_init(&curr_block_single);
+  // NOTE: curr_block_single points to BlockItem arr
+  // that block must live beyond what happens to curr_block_single, which
+  // is a transient variable. since we store the block BY copy in
+  // block->blocks, it means those pointers get copied, and thus a handle
+  // to them exists via block->blocks[i]
+  arrpush(block->blocks, curr_block_single);
 
   struct BlockItem b_item = {0};
   b_item.shared = shared;
@@ -204,7 +209,7 @@ void compress_and_write_v2(Array *sst_pairs, int data_len, char *write_buf) {
   b_item.suffix = curr.key.data;
   b_item.value_len = curr.value.len;
   b_item.value = curr.value.data;
-  DataBlock_append_item(curr_block, &b_item);
+  DataBlockSingle_append_item(&curr_block_single, &b_item);
   // LString *b_item_serialized = BlockItem_serialize(&b_item);
   // memcpy(cursor, b_item_serialized->data, b_item_serialized->len);
   // cursor += b_item_serialized->len;
@@ -224,13 +229,46 @@ void compress_and_write_v2(Array *sst_pairs, int data_len, char *write_buf) {
   struct IndexBlock i_block = {0};
   arrsetcap(i_block.items, 128);
   arrpush(i_block.items, curr_index_item);
-  u32 block_idx = 1;
   for (u32 j = 1; j < sst_pairs->len; j++) {
+    // curr = array_index(sst_pairs, struct SSTPair, j);
+    // printf("CURR->KEY: %.*s\n", curr.key.len, curr.key.data);
     if (j % 128 == 0) {
-      curr_block = &blocks[block_idx++];
-      DataBlock_init(curr_block);
+        // it is  crucial that _init sets the .items and .restart_points fields
+        // to NULL and thus arrsetcap CREATES new arrays (mallocs them)
+        // recall that the reference to the old block's items and rps remains
+        // when we append to block->blocks BY VALUE ! so the pointers are copied
+        // and thus live, but curr_block gets refreshed!
+        // essentially what we want each time is something like
+        // curr_block_single = new DataBlockSingle();
+        // where the constructor of that allocates the arrays (NEW ones)
+        // appropriately
+        // i.e. think of DataBlockSingle_init as
+        // public void DataBlockSingle() {
+        //   this.items = new ArrayList<BlockItem>();
+        //   this.restartPoints = new ArrayList<RestartPoint>();
+        // }
+        // curr_block_single = new DataBlockSingle();
+        // block.blocks.append(curr_block_single);
+        // ...
+        // curr_block_single.items.append(b_item);
+        // ---
+        // since curr_block_single is an Object, we can append to it and
+        // block.blocks.append retains it
+        // of course oen can argue that we should append once we're done
+        // attending for more "idiomatic" usage!
+        // maybe first append, and then initialize the new current block
+        // that would work if we do the following:
+        // (1) swap the order of _init and arrpush below
+        // (2) remove the arrpush before the loop
+        // (3) add a final arrpush AFTER the loop to cover the final block
+        // it depends on if we want:
+        // 1. push block before and then fill it with data
+        // 2. fill it with data then push
+      DataBlockSingle_init(&curr_block_single);
+      arrpush(block->blocks, curr_block_single);
     }
     struct SSTPair data = array_index(sst_pairs, struct SSTPair, j);
+    prev = &array_index(sst_pairs, struct SSTPair, j - 1).key;
     u16 shared = 0;
     for (int k = 0; k < data.key.len && k < prev->len; k++) {
       if (data.key.data[k] != prev->data[k]) {
@@ -244,12 +282,12 @@ void compress_and_write_v2(Array *sst_pairs, int data_len, char *write_buf) {
     b_item.shared = shared;
     b_item.suffix_len = suffix_len;
     // we store suffix only, so must offset key.data by shared!
-    b_item.suffix = curr.key.data + shared;
-    b_item.value_len = curr.value.len;
-    b_item.value = curr.value.data;
-    DataBlock_append_item(curr_block, &b_item);
+    b_item.suffix = data.key.data + shared;
+    b_item.value_len = data.value.len;
+    b_item.value = data.value.data;
+    DataBlockSingle_append_item(&curr_block_single, &b_item);
     if (j % 128 == 0) {
-      curr_index_item.key = &curr.key;
+      curr_index_item.key = &data.key;
       arrpush(i_block.items, curr_index_item);
     }
     // b_item_serialized = BlockItem_serialize(&b_item);
@@ -262,14 +300,14 @@ void compress_and_write_v2(Array *sst_pairs, int data_len, char *write_buf) {
     // lstring_free(b_item_serialized);
   }
 
-  LString *compressed_block = DataBlock_compress(&blocks[0]);
+  LString *compressed_block = DataBlock_compress(block);
   memcpy(write_buf, compressed_block->data, compressed_block->len);
-  for (int i = 1; i < arrlen(blocks); i++) {
-    i_block.items[i].offset = compressed_block->len;
-    struct DataBlock b = blocks[i];
-    compressed_block = DataBlock_compress(&b);
-    memcpy(write_buf, compressed_block->data, compressed_block->len);
-  }
+
+  *len += compressed_block->len;
+  write_buf += compressed_block->len;
+  printf("ARRLEN(BLOCKS): %d\n", arrlen(block->blocks));
+  printf("ARRLEN(I_BLOCKS): %d\n", arrlen(i_block.items));
+  int j = 0;
 
   array_set_length(sst_pairs, 0);
 }
