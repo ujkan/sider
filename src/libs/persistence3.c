@@ -191,8 +191,6 @@ void compress_and_write_v2(Array *sst_pairs, int data_len, char *write_buf,
                            int *len) {
 
   struct SSTPair curr = array_index(sst_pairs, struct SSTPair, 0);
-  u32 shared = 0;
-
   struct DataBlock *block = malloc(sizeof(struct DataBlock));
   arrsetcap(block->blocks, 128);
   struct DataBlockSingle curr_block_single = {0};
@@ -288,35 +286,7 @@ void compress_and_write_v2(Array *sst_pairs, int data_len, char *write_buf,
   write_buf += compressed_block->len;
   printf("ARRLEN(BLOCKS): %d\n", arrlen(block->blocks));
   printf("ARRLEN(I_BLOCKS): %d\n", arrlen(i_block.items));
-  int j = 0;
 
-  array_set_length(sst_pairs, 0);
-}
-
-void compress_and_write(Array *sst_pairs, int data_len, FILE *fptr) {
-  if (!t_block_buf) {
-    t_block_buf = malloc(MAX_BLOCK_SIZE);
-    t_comp_buf = malloc(MAX_COMP_SIZE);
-  }
-
-  // 2. Safety check
-  if (data_len > MAX_BLOCK_SIZE)
-    return;
-  char *block_buf = t_block_buf;
-  char *compressed_block = t_comp_buf;
-  char *cursor = block_buf;
-  for (int j = 0; j < sst_pairs->len; j++) {
-    struct SSTPair data = array_index(sst_pairs, struct SSTPair, j);
-    SSTPair_deserialize(&data, &cursor);
-    // fwrite(&keys[prev]->len, kLStringLenSize, 1, fptr);
-    // fwrite(keys[prev]->data, 1, keys[prev]->len, fptr);
-  }
-
-  int compressed_block_size = LZ4_compress_default(
-      block_buf, compressed_block, data_len, LZ4_compressBound(data_len));
-  fwrite(&compressed_block_size, 1, sizeof(compressed_block_size), fptr);
-  fwrite(&data_len, 1, sizeof(data_len), fptr);
-  fwrite(compressed_block, 1, compressed_block_size, fptr);
   array_set_length(sst_pairs, 0);
 }
 
