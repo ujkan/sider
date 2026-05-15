@@ -27,6 +27,39 @@ LString *RestartPoint_serialize(struct RestartPoint *rp) {
   return serialized;
 }
 
+void RestartPoint_serialize_into(struct RestartPoint *rp, char **buf) {
+  // u16 len =
+  //     rp->key.len + sizeof(rp->offset); // TODO: if rp->key.len > sizeof(u16)
+  //     -
+  //                                       // 4 this will overflow
+  memcpy(*buf, rp->key.data, rp->key.len);
+  *buf += rp->key.len;
+  memcpy(*buf, &rp->offset, sizeof(rp->offset));
+}
+
+LString *DataBlockSingle_compress(struct DataBlockSingle *block) {
+  char *buf = malloc(1024 * 1024 * 1024);
+  char *bufptr = buf;
+
+  for (int i = 0; i < arrlen(block->items); i++) {
+    BlockItem_serialize_into(&block->items[i], &bufptr);
+  }
+  for (int i = 0; i < arrlen(block->restart_points); i++) {
+    RestartPoint_serialize_into(&block->restart_points[i], &bufptr);
+  }
+  // hex_dump(buf, bufptr - buf);
+  char *compressed = malloc(LZ4_compressBound(bufptr - buf));
+  int size = LZ4_compress_default(buf, compressed, bufptr - buf,
+                                  LZ4_compressBound(bufptr - buf));
+  LString *c = malloc(
+      sizeof(LString)); // TODO: we need a type for generic length-prefixed
+                        // string (with u32 or u64 len) and type for Key with
+                        // u16 or some other way to enforce key_len is u16
+  c->data = compressed;
+  c->len = size;
+  return c;
+}
+
 LString *DataBlock_compress(struct DataBlock *block) {
   char *buf = malloc(1024 * 1024 * 1024);
   char *bufptr = buf;

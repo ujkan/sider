@@ -20,4 +20,6 @@ void compress_and_write_v2(Array *sst_pairs, int data_len, char *write_buf,
 LString* search_in_sst(SSTable sst, LString *key);
 void merge_and_compact_level_zero(Array *sstables);
 
+SSTable *dump_memtable_to_sst_v2(SkipList *sl, LString *filepath);
+
 #endif // PERSISTENCE_H

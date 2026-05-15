@@ -13,5 +13,6 @@ struct BlockItem {
 };
 
 LString *BlockItem_serialize(struct BlockItem *item);
+void BlockItem_serialize_into(struct BlockItem *item, char **buf);
 
 #endif // BLOCK_ITEM_H

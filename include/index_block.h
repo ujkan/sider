@@ -15,5 +15,6 @@ struct IndexBlock {
 };
 
 u32 IndexBlock_search(struct IndexBlock *iblock, LString *key);
+LString *IndexBlock_serialize(struct IndexBlock *iblock);
 
 #endif // INDEX_BLOCK_H

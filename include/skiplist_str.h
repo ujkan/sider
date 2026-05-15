@@ -31,5 +31,6 @@ i32 sl_s_remove(SkipList *sl, LString *key);
 i32 sl_s_get_data(SkipList *sl, LString ***keys, LString ***values, u32 *out_count);
 i32 sl_s_destroy(SkipList *sl);
 void pretty_print_skiplist(struct SkipList *list);
+SkipList *sl_s_test_data();
 
 #endif

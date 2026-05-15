@@ -45,6 +45,7 @@
 #include "stb_ds.h"
 #include "u_array.h"
 #include <errno.h>
+#include <fcntl.h>
 #include <lz4.h>
 #include <pthread.h>
 #include <stddef.h>
@@ -53,8 +54,10 @@
 #include <stdlib.h>
 #include <string.h>
 #include <strings.h>
+#include <sys/mman.h>
 #include <sys/stat.h>
 #include <time.h>
+#include <unistd.h>
 const u32 kTagSize = 2; // bytes
 u16 kKeyTag = 0;
 u16 kValueTag = 1;
@@ -280,10 +283,15 @@ void compress_and_write_v2(Array *sst_pairs, int data_len, char *write_buf,
   }
 
   LString *compressed_block = DataBlock_compress(block);
+  LString *index_block_serialized = IndexBlock_serialize(&i_block);
   // TODO: use slice/bytebuf instead of write_buf
+  printf("compressed->block->len: %d\n", compressed_block->len);
   memcpy(write_buf, compressed_block->data, compressed_block->len);
   *len += compressed_block->len;
   write_buf += compressed_block->len;
+  memcpy(write_buf, index_block_serialized->data, index_block_serialized->len);
+  *len += index_block_serialized->len;
+  write_buf += index_block_serialized->len;
   array_set_length(sst_pairs, 0);
 }
 
@@ -295,221 +303,162 @@ SSTable *dump_memtable_to_sst_v2(SkipList *mt, LString *filepath) {
 
   char *fp __attribute__((__cleanup__(cleanup_char_buf)));
   fp = lstring_to_cstr(filepath); // 0-terminated means can copy 127 chars max
-  FILE *fptr __attribute__((__cleanup__(cleanup_file)));
-  fptr = fopen(fp, "a");
-
-  if (fptr == NULL) {
+  int fd;
+  fd = open(fp, O_RDWR | O_CREAT | O_TRUNC, 0644);
+  size_t size = 1024 * 1024 * 128;
+  if (ftruncate(fd, size) == -1) {
+    perror("Error setting file size");
     return NULL;
   }
-  sst->fd = fileno(fptr);
+
+  char *map = mmap(NULL, size, PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0);
 
   LString **keys;
   LString **values;
   u32 out_count;
   sl_s_get_data(mt, &keys, &values, &out_count);
-
   if (out_count == 0) {
     free(sst);
     free(keys);
     free(values);
     return 0;
   }
-
-  // Record the starting position to calculate total bytes written at the
-  // end
-  long start_pos = ftell(fptr);
-
-  int idx_struct_size = sizeof(struct KeyOffsetPair);
-  Array *offset_sparse_index = array_sized_new(out_count, idx_struct_size);
-
-  u32 index_size = 0;
-  u32 index_offset = 0;
-  u32 kFooterSize = 4 + 4; // 4 bytes for size; 4 for offset
-  int data_len = 0;
-
-  char writebuf[8 * 1024];
-
-  Array *data_blocks = array_sized_new(
-      kBatchSize,
-      sizeof(struct SSTPair)); // k_max_key_len + k_max_value_len (upper bound
-                               // for block)
-  // --- Write the data and build the index ---
-  for (u32 i = 0; i < out_count; i++) {
-
-    if (i > 0 && i % kBatchSize == 0) {
-      compress_and_write(data_blocks, data_len, fptr);
-      data_len = 0;
-    }
-    if (i % kBatchSize == 0) {
-      u32 current_offset = (u32)(ftell(fptr) - start_pos);
-      array_push(
-          offset_sparse_index,
-          &(struct KeyOffsetPair){.key = *keys[i], .offset = current_offset});
-    }
-    LString *key = keys[i];
-    LString *value = values[i];
-    struct SSTPair tmpdata = {0};
-    tmpdata.tag = kPairTag;
-    tmpdata.key = *key;
-    tmpdata.value = *value;
-    array_push(data_blocks, &tmpdata);
-    data_len += SSTPair_get_size(&tmpdata);
-    //     printf("DATA_LEN: %d\n", data_len);
+  // sst_pairs_init(keys, values);
+    //
+  Array *sst_pairs = array_sized_new(out_count, sizeof(struct SSTPair));
+  for (int i = 0; i < out_count; i++) {
+    struct SSTPair sst_pair = {0};
+    sst_pair.tag = kPairTag;
+    sst_pair.key = *keys[i];
+    sst_pair.value = *values[i];
+    array_push(sst_pairs, &sst_pair);
   }
-  compress_and_write(data_blocks, data_len, fptr);
-  free(data_blocks->data);
-  free(data_blocks);
-
-  index_offset = ftell(fptr);
-
-  // --- Write the index ---
-  u32 index_count = (out_count - 1) / kBatchSize + 1;
-  printf("Writing index...\n");
-  for (u32 i = 0; i < index_count; i++) {
-    struct KeyOffsetPair *pair =
-        &array_index(offset_sparse_index, struct KeyOffsetPair, i);
-
-    printf("index[%d]: key len=%d data=%.*s offset=%d\n", i, pair->key.len,
-           pair->key.len, pair->key.data, pair->offset);
-    index_size += KeyOffsetPair_serialize(pair, fptr);
+  int written_len;
+  compress_and_write_v2(sst_pairs, 0, map, &written_len);
+  if (msync(map, size, MS_SYNC) == -1) {
+    perror("Could not sync to disk");
   }
-
-  // write footer
-  //   printf("index_offset: %d\n", index_offset);
-  //   printf("index_size: %d\n", index_size);
-  fwrite(&index_offset, sizeof(index_offset), 1, fptr);
-  fwrite(&index_size, sizeof(index_size), 1, fptr);
-
-  // Return total bytes written
-  sst->size = (u32)(ftell(fptr) - start_pos);
-  // printf("[THREAD %lu] dump_memtable_to_sst: Successfully wrote %u "
-  //        "bytes to '%s', closing file\n",
-  //        thread_id, sst->size, fp);
-  // printf("[THREAD %lu] dump_memtable_to_sst: Returning SST with "
-  //        "filepath = '%s'\n ",
-  //        thread_id, sst->filepath->data);
-  array_set_length(offset_sparse_index, 0);
-  free(offset_sparse_index->data);
-  free(offset_sparse_index);
-  // for (u32 i = 0; i < out_count; i++) {
-  //   free(keys[i]->data);
-  //   free(values[i]->data);
-  // }
-  free(keys);
-  free(values);
+  if (munmap(map, size) == -1) {
+    perror("Error unmapping");
+  }
+if (ftruncate(fd, written_len) == -1) {
+    perror("ftruncate failed");
+}
+  close(fd);
+  sst->fd = fd;
   return sst;
 }
 
-SSTable *dump_memtable_to_sst(SkipList *mt, LString *filepath) {
-  pthread_t thread_id = pthread_self();
-
-  SSTable *sst = malloc(sizeof(SSTable));
-  sst->filepath = filepath;
-
-  char *fp __attribute__((__cleanup__(cleanup_char_buf)));
-  fp = lstring_to_cstr(filepath); // 0-terminated means can copy 127 chars max
-  FILE *fptr __attribute__((__cleanup__(cleanup_file)));
-  fptr = fopen(fp, "a");
-
-  if (fptr == NULL) {
-    return NULL;
-  }
-  sst->fd = fileno(fptr);
-
-  LString **keys;
-  LString **values;
-  u32 out_count;
-  sl_s_get_data(mt, &keys, &values, &out_count);
-
-  if (out_count == 0) {
-    free(sst);
-    free(keys);
-    free(values);
-    return 0;
-  }
-
-  // Record the starting position to calculate total bytes written at the
-  // end
-  long start_pos = ftell(fptr);
-
-  int idx_struct_size = sizeof(struct KeyOffsetPair);
-  Array *offset_sparse_index = array_sized_new(out_count, idx_struct_size);
-
-  u32 index_size = 0;
-  u32 index_offset = 0;
-  u32 kFooterSize = 4 + 4; // 4 bytes for size; 4 for offset
-  int data_len = 0;
-
-  Array *data_blocks = array_sized_new(
-      kBatchSize,
-      sizeof(struct SSTPair)); // k_max_key_len + k_max_value_len (upper bound
-                               // for block)
-  // --- Write the data and build the index ---
-  for (u32 i = 0; i < out_count; i++) {
-
-    if (i > 0 && i % kBatchSize == 0) {
-      compress_and_write(data_blocks, data_len, fptr);
-      data_len = 0;
-    }
-    if (i % kBatchSize == 0) {
-      u32 current_offset = (u32)(ftell(fptr) - start_pos);
-      array_push(
-          offset_sparse_index,
-          &(struct KeyOffsetPair){.key = *keys[i], .offset = current_offset});
-    }
-    LString *key = keys[i];
-    LString *value = values[i];
-    struct SSTPair tmpdata = {0};
-    tmpdata.tag = kPairTag;
-    tmpdata.key = *key;
-    tmpdata.value = *value;
-    array_push(data_blocks, &tmpdata);
-    data_len += SSTPair_get_size(&tmpdata);
-    //     printf("DATA_LEN: %d\n", data_len);
-  }
-  compress_and_write(data_blocks, data_len, fptr);
-  free(data_blocks->data);
-  free(data_blocks);
-
-  index_offset = ftell(fptr);
-
-  // --- Write the index ---
-  u32 index_count = (out_count - 1) / kBatchSize + 1;
-  printf("Writing index...\n");
-  for (u32 i = 0; i < index_count; i++) {
-    struct KeyOffsetPair *pair =
-        &array_index(offset_sparse_index, struct KeyOffsetPair, i);
-
-    printf("index[%d]: key len=%d data=%.*s offset=%d\n", i, pair->key.len,
-           pair->key.len, pair->key.data, pair->offset);
-    index_size += KeyOffsetPair_serialize(pair, fptr);
-  }
-
-  // write footer
-  //   printf("index_offset: %d\n", index_offset);
-  //   printf("index_size: %d\n", index_size);
-  fwrite(&index_offset, sizeof(index_offset), 1, fptr);
-  fwrite(&index_size, sizeof(index_size), 1, fptr);
-
-  // Return total bytes written
-  sst->size = (u32)(ftell(fptr) - start_pos);
-  // printf("[THREAD %lu] dump_memtable_to_sst: Successfully wrote %u "
-  //        "bytes to '%s', closing file\n",
-  //        thread_id, sst->size, fp);
-  // printf("[THREAD %lu] dump_memtable_to_sst: Returning SST with "
-  //        "filepath = '%s'\n ",
-  //        thread_id, sst->filepath->data);
-  array_set_length(offset_sparse_index, 0);
-  free(offset_sparse_index->data);
-  free(offset_sparse_index);
-  // for (u32 i = 0; i < out_count; i++) {
-  //   free(keys[i]->data);
-  //   free(values[i]->data);
-  // }
-  free(keys);
-  free(values);
-  return sst;
-}
+// SSTable *dump_memtable_to_sst(SkipList *mt, LString *filepath) {
+//   pthread_t thread_id = pthread_self();
+//
+//   SSTable *sst = malloc(sizeof(SSTable));
+//   sst->filepath = filepath;
+//
+//   char *fp __attribute__((__cleanup__(cleanup_char_buf)));
+//   fp = lstring_to_cstr(filepath); // 0-terminated means can copy 127 chars max
+//   FILE *fptr __attribute__((__cleanup__(cleanup_file)));
+//   fptr = fopen(fp, "a");
+//
+//   if (fptr == NULL) {
+//     return NULL;
+//   }
+//   sst->fd = fileno(fptr);
+//
+//   LString **keys;
+//   LString **values;
+//   u32 out_count;
+//   sl_s_get_data(mt, &keys, &values, &out_count);
+//
+//   if (out_count == 0) {
+//     free(sst);
+//     free(keys);
+//     free(values);
+//     return 0;
+//   }
+//
+//   // Record the starting position to calculate total bytes written at the
+//   // end
+//   long start_pos = ftell(fptr);
+//
+//   int idx_struct_size = sizeof(struct KeyOffsetPair);
+//   Array *offset_sparse_index = array_sized_new(out_count, idx_struct_size);
+//
+//   u32 index_size = 0;
+//   u32 index_offset = 0;
+//   u32 kFooterSize = 4 + 4; // 4 bytes for size; 4 for offset
+//   int data_len = 0;
+//
+//   Array *data_blocks = array_sized_new(
+//       kBatchSize,
+//       sizeof(struct SSTPair)); // k_max_key_len + k_max_value_len (upper bound
+//                                // for block)
+//   // --- Write the data and build the index ---
+//   for (u32 i = 0; i < out_count; i++) {
+//
+//     if (i > 0 && i % kBatchSize == 0) {
+//       compress_and_write(data_blocks, data_len, fptr);
+//       data_len = 0;
+//     }
+//     if (i % kBatchSize == 0) {
+//       u32 current_offset = (u32)(ftell(fptr) - start_pos);
+//       array_push(
+//           offset_sparse_index,
+//           &(struct KeyOffsetPair){.key = *keys[i], .offset = current_offset});
+//     }
+//     LString *key = keys[i];
+//     LString *value = values[i];
+//     struct SSTPair tmpdata = {0};
+//     tmpdata.tag = kPairTag;
+//     tmpdata.key = *key;
+//     tmpdata.value = *value;
+//     array_push(data_blocks, &tmpdata);
+//     data_len += SSTPair_get_size(&tmpdata);
+//     //     printf("DATA_LEN: %d\n", data_len);
+//   }
+//   compress_and_write(data_blocks, data_len, fptr);
+//   free(data_blocks->data);
+//   free(data_blocks);
+//
+//   index_offset = ftell(fptr);
+//
+//   // --- Write the index ---
+//   u32 index_count = (out_count - 1) / kBatchSize + 1;
+//   printf("Writing index...\n");
+//   for (u32 i = 0; i < index_count; i++) {
+//     struct KeyOffsetPair *pair =
+//         &array_index(offset_sparse_index, struct KeyOffsetPair, i);
+//
+//     printf("index[%d]: key len=%d data=%.*s offset=%d\n", i, pair->key.len,
+//            pair->key.len, pair->key.data, pair->offset);
+//     index_size += KeyOffsetPair_serialize(pair, fptr);
+//   }
+//
+//   // write footer
+//   //   printf("index_offset: %d\n", index_offset);
+//   //   printf("index_size: %d\n", index_size);
+//   fwrite(&index_offset, sizeof(index_offset), 1, fptr);
+//   fwrite(&index_size, sizeof(index_size), 1, fptr);
+//
+//   // Return total bytes written
+//   sst->size = (u32)(ftell(fptr) - start_pos);
+//   // printf("[THREAD %lu] dump_memtable_to_sst: Successfully wrote %u "
+//   //        "bytes to '%s', closing file\n",
+//   //        thread_id, sst->size, fp);
+//   // printf("[THREAD %lu] dump_memtable_to_sst: Returning SST with "
+//   //        "filepath = '%s'\n ",
+//   //        thread_id, sst->filepath->data);
+//   array_set_length(offset_sparse_index, 0);
+//   free(offset_sparse_index->data);
+//   free(offset_sparse_index);
+//   // for (u32 i = 0; i < out_count; i++) {
+//   //   free(keys[i]->data);
+//   //   free(values[i]->data);
+//   // }
+//   free(keys);
+//   free(values);
+//   return sst;
+// }
 
 // tombstone will be
 // [key] [len] [value]

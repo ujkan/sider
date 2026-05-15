@@ -30,5 +30,6 @@ void DataBlockSingle_append_entry(struct DataBlockSingle *block, LString *key, L
 LString* DataBlockSingle_to_LString(struct DataBlockSingle *block);
 
 LString *RestartPoint_serialize(struct RestartPoint *rp);
+void RestartPoint_serialize_into(struct RestartPoint *rp, char **buf);
 
 #endif // BLOCK_H

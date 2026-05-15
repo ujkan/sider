@@ -170,7 +170,7 @@ i32 sl_s_insert_internal(SkipList *sl, LString *key, LString *value,
     }
   }
   if (tombstone == 1) {
-      return 1; // does not exist, cannot delete
+    return 1; // does not exist, cannot delete
   }
   int sum = 1;
   for (int i = 0; i < sl->num_levels - 1; i++) {
@@ -229,6 +229,22 @@ i32 sl_s_get_data(SkipList *sl, LString ***keys_out, LString ***values_out,
   }
 
   return 0;
+}
+
+SkipList *sl_s_test_data() {
+  SkipList *sl = sl_s_init();
+  for (int i = 0; i < 256; i++) {
+    for (int j = 0; j < 8; j++) {
+      char kbuf[7];
+      sprintf(kbuf, "%03d/%02d", i, j);
+      LString *key = lstring_create_from_buf(6, kbuf);
+      char vbuf[9];
+      sprintf(vbuf, "value%03d", i);
+      LString *value = lstring_create_from_buf(8, vbuf);
+      sl_s_insert(sl, key, value);
+    }
+  }
+  return sl;
 }
 
 // int main() {
