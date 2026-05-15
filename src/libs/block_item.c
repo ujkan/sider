@@ -20,15 +20,15 @@ LString *BlockItem_serialize(struct BlockItem *item) {
   return ret;
 }
 
-void BlockItem_serialize_into(struct BlockItem *item, char **data) {
+void BlockItem_serialize_into(struct BlockItem *item, u8 **data) {
   // u16 len = sizeof(item->shared) + sizeof(item->suffix_len) + item->suffix_len +
   //           sizeof(item->value_len) + item->value_len;
-  u8 *dataptr = (u8 *)*data;
+  u8 *dataptr = *data;
   scribe_put_u16(&dataptr, item->shared);
   scribe_put_u16(&dataptr, item->suffix_len);
   scribe_put_bytes(&dataptr, item->suffix, item->suffix_len);
   scribe_put_u16(&dataptr, item->value_len);
   scribe_put_bytes(&dataptr, item->value, item->value_len);
 
-  *data = (char *)dataptr;
+  *data = dataptr;
 }

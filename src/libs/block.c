@@ -33,15 +33,15 @@ LString *RestartPoint_serialize(struct RestartPoint *rp) {
   return serialized;
 }
 
-void RestartPoint_serialize_into(struct RestartPoint *rp, char **buf) {
+void RestartPoint_serialize_into(struct RestartPoint *rp, u8 **buf) {
   // u16 len =
   //     rp->key.len + sizeof(rp->offset); // TODO: if rp->key.len > sizeof(u16)
   //     -
   //                                       // 4 this will overflow
-  u8 *dataptr = (u8 *)*buf;
+  u8 *dataptr = *buf;
   scribe_put_bytes(&dataptr, rp->key.data, rp->key.len);
   scribe_put_u32(&dataptr, rp->offset);
-  *buf = (char *)dataptr;
+  *buf = dataptr;
 }
 
 LString *DataBlockSingle_compress(struct DataBlockSingle *block) {
@@ -55,8 +55,8 @@ LString *DataBlockSingle_compress(struct DataBlockSingle *block) {
     RestartPoint_serialize_into(&block->restart_points[i], &bufptr);
   }
   // hex_dump(buf, bufptr - buf);
-  char *compressed = malloc(LZ4_compressBound(bufptr - buf));
-  int size = LZ4_compress_default((char *)buf, compressed, bufptr - buf,
+  u8 *compressed = malloc(LZ4_compressBound(bufptr - buf));
+  int size = LZ4_compress_default((char *)buf, (char *)compressed, bufptr - buf,
                                   LZ4_compressBound(bufptr - buf));
   LString *c = malloc(sizeof(LString)); // TODO: we need a type for generic
                                         // length-prefixed string (with u32 or
@@ -84,8 +84,8 @@ LString *DataBlock_compress(struct DataBlock *block) {
     }
   }
   hex_dump((char *)buf, bufptr - buf);
-  char *compressed = malloc(LZ4_compressBound(bufptr - buf));
-  int size = LZ4_compress_default((char *)buf, compressed, bufptr - buf,
+  u8 *compressed = malloc(LZ4_compressBound(bufptr - buf));
+  int size = LZ4_compress_default((char *)buf, (char *)compressed, bufptr - buf,
                                   LZ4_compressBound(bufptr - buf));
   LString *c = malloc(sizeof(LString)); // TODO: we need a type for generic
                                         // length-prefixed string (with u32 or
