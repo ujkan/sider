@@ -548,8 +548,11 @@ LString *search_in_sst(SSTable sst, LString *key) {
   fseek(fptr, st.st_size - 8, SEEK_SET);
   u32 index_offset;
   u32 index_size;
-  fread(&index_offset, 1, sizeof(index_offset), fptr);
-  fread(&index_size, 1, sizeof(index_size), fptr);
+  u8 index_hdr[sizeof(index_offset) + sizeof(index_size)];
+  fread(index_hdr, 1, sizeof(index_hdr), fptr);
+  const u8 *hdr_src = index_hdr;
+  index_offset = scribe_get_u32(&hdr_src);
+  index_size = scribe_get_u32(&hdr_src);
   fseek(fptr, index_offset, SEEK_SET);
 
   char *index = malloc(index_size);
@@ -587,8 +590,11 @@ LString *search_in_sst(SSTable sst, LString *key) {
   // TODO: find nearest point here!!, do not set offset=-1 if not found
   fseek(fptr, offset, SEEK_SET);
   int block_len, uncompressed_len;
-  fread(&block_len, 1, sizeof(block_len), fptr);
-  fread(&uncompressed_len, 1, sizeof(uncompressed_len), fptr);
+  u8 block_hdr[sizeof(block_len) + sizeof(uncompressed_len)];
+  fread(block_hdr, 1, sizeof(block_hdr), fptr);
+  const u8 *block_src = block_hdr;
+  block_len = scribe_get_u32(&block_src);
+  uncompressed_len = scribe_get_u32(&block_src);
   char *buf = malloc(block_len);
   fread(buf, 1, block_len, fptr);
   char *dst = malloc(uncompressed_len);
@@ -721,8 +727,11 @@ char *sstable_get_data_block(SSTable *sst, u32 *data_block_size) {
   fseek(fptr, st.st_size - 8, SEEK_SET);
   u32 index_offset;
   u32 index_size;
-  fread(&index_offset, 1, sizeof(index_offset), fptr);
-  fread(&index_size, 1, sizeof(index_size), fptr);
+  u8 index_hdr[sizeof(index_offset) + sizeof(index_size)];
+  fread(index_hdr, 1, sizeof(index_hdr), fptr);
+  const u8 *src = index_hdr;
+  index_offset = scribe_get_u32(&src);
+  index_size = scribe_get_u32(&src);
 
   fseek(fptr, 0, SEEK_SET);
 
