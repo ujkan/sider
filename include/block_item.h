@@ -14,5 +14,6 @@ struct BlockItem {
 
 LString *BlockItem_serialize(struct BlockItem *item);
 void BlockItem_serialize_into(struct BlockItem *item, u8 **buf);
+u32 BlockItem_size(struct BlockItem *item);
 
 #endif // BLOCK_ITEM_H

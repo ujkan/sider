@@ -15,6 +15,7 @@ LString *DataBlockSingle_to_LString(struct DataBlockSingle *block);
 void DataBlockSingle_init(struct DataBlockSingle *block) {
   block->items = NULL;
   block->restart_points = NULL;
+  block->items_size_bytes = 0;
   arrsetcap(block->items, 512);
   arrsetcap(block->restart_points, 128);
 }

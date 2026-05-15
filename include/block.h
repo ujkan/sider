@@ -15,6 +15,7 @@ struct DataBlockSingle {
   struct BlockItem *items; // type BlockItem
   struct RestartPoint *restart_points; // type RestartPoint
   int checksum;
+  u32 items_size_bytes;
   // other metadata
 };
 

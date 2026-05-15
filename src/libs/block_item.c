@@ -32,3 +32,8 @@ void BlockItem_serialize_into(struct BlockItem *item, u8 **data) {
 
   *data = dataptr;
 }
+
+u32 BlockItem_size(struct BlockItem *item) {
+  return sizeof(item->shared) + sizeof(item->suffix_len) + item->suffix_len +
+         sizeof(item->value_len) + item->value_len;
+}
