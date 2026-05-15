@@ -1,12 +1,12 @@
 #include "block.h"
+#include "block_item.h"
 #include "hex_dump.h"
-#include "stb_ds.h"
 #include "scribe.h"
+#include "stb_ds.h"
 #include <lz4.h>
 #include <stdlib.h>
 
 void DataBlockSingle_init(struct DataBlockSingle *block);
-LString *DataBlockSingle_compress(struct DataBlockSingle *block);
 void DataBlockSingle_append_item(
     struct DataBlockSingle *block,
     struct BlockItem *item); // implicitly manages RestartPoints !
@@ -106,8 +106,11 @@ void DataBlockSingle_append_item(struct DataBlockSingle *block,
     struct RestartPoint rp;
     rp.key.data = item->suffix;
     rp.key.len = item->suffix_len;
+    rp.offset = block->items_size_bytes;
+    arrpush(block->restart_points, rp);
   }
   arrpush(block->items, *item);
+  block->items_size_bytes += BlockItem_size(item);
 }
 
 void DataBlockSingle_append_entry(struct DataBlockSingle *block, LString *key,
