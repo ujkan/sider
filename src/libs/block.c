@@ -40,30 +40,36 @@ void RestartPoint_serialize_into(struct RestartPoint *rp, u8 **buf) {
   //     -
   //                                       // 4 this will overflow
   u8 *dataptr = *buf;
+  printf("RestartPoint_serialize_into: rp->key.data %s\n", rp->key.data);
+  scribe_put_u16(&dataptr, rp->key.len);
   scribe_put_bytes(&dataptr, rp->key.data, rp->key.len);
   scribe_put_u32(&dataptr, rp->offset);
   *buf = dataptr;
 }
 
-LString *DataBlockSingle_compress(struct DataBlockSingle *block) {
+LString *DataBlockSingle_compress(struct DataBlockSingle *block,
+                                  size_t *original_size) {
   u8 *buf = malloc(1024 * 1024 * 1024);
-  u8 *bufptr = buf;
+  u8 *cursor = buf;
 
   for (int i = 0; i < arrlen(block->items); i++) {
-    BlockItem_serialize_into(&block->items[i], &bufptr);
+    BlockItem_serialize_into(&block->items[i], &cursor);
   }
   for (int i = 0; i < arrlen(block->restart_points); i++) {
-    RestartPoint_serialize_into(&block->restart_points[i], &bufptr);
+    RestartPoint_serialize_into(&block->restart_points[i], &cursor);
   }
-  // hex_dump(buf, bufptr - buf);
-  u8 *compressed = malloc(LZ4_compressBound(bufptr - buf));
-  int size = LZ4_compress_default((char *)buf, (char *)compressed, bufptr - buf,
-                                  LZ4_compressBound(bufptr - buf));
+  hex_dump(buf, cursor - buf);
+  size_t written = cursor - buf;
+  int bound = LZ4_compressBound((int)(written));
+  u8 *compressed = malloc(bound);
+  int size = LZ4_compress_default((char *)buf, (char *)compressed, (int)written,
+                                  bound);
   LString *c = malloc(sizeof(LString)); // TODO: we need a type for generic
                                         // length-prefixed string (with u32 or
                                         // u64 len) and type for Key with u16
                                         // or some other way to enforce key_len
                                         // is u16
+  *original_size = written;
   c->data = compressed;
   c->len = size;
   return c;
