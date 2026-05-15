@@ -3,13 +3,15 @@ CXX = g++
 
 # Compiler flags
 # -fanalyzer
-CFLAGS = -I./include -I$(HOME)/.local/include -I./include/stc -I/usr/include/glib-2.0 -I/usr/lib/x86_64-linux-gnu/glib-2.0/include -I/opt/local/include -Wall -Wextra -O0 -g
-CXXFLAGS = -I./include -I$(HOME)/.local/include -I./include/stc -I/usr/include/glib-2.0 -I/usr/lib/x86_64-linux-gnu/glib-2.0/include -Wall -Wextra -O0 -g
+# Clone Unity separately and point UNITY_DIR at its `src/` directory.
+UNITY_DIR ?= ./Unity-2.6.1/src
+CFLAGS = -I./include -I$(UNITY_DIR) -I$(HOME)/.local/include -I/usr/include/glib-2.0 -I/usr/lib/x86_64-linux-gnu/glib-2.0/include -I/opt/local/include -Wall -Wextra -O0 -g
+CXXFLAGS = -I./include -I$(UNITY_DIR) -I$(HOME)/.local/include -I/usr/include/glib-2.0 -I/usr/lib/x86_64-linux-gnu/glib-2.0/include -Wall -Wextra -O0 -g
 # CFLAGS = -I./include -I$(HOME)/.local/include -I./include/stc -I/usr/include/glib-2.0 -I/usr/lib/x86_64-linux-gnu/glib-2.0/include -Wall -Wextra -O2
 # CXXFLAGS = -I./include -I$(HOME)/.local/include -I./include/stc -I/usr/include/glib-2.0 -I/usr/lib/x86_64-linux-gnu/glib-2.0/include -Wall -Wextra -O2
 
 # Linker flags
-LDFLAGS = -L/opt/local/lib -llz4
+LDFLAGS = -L$(HOME)/.local/lib -L/opt/local/lib -llz4
 
 RM = rm -f
 
@@ -19,6 +21,22 @@ LIBDIR = $(SRCDIR)/libs
 OBJDIR = obj
 BINDIR = bin
 TESTDIR = tests
+UNITY_SRC = $(UNITY_DIR)/unity.c
+UNITY_OBJ = $(OBJDIR)/unity.o
+UNITY_LIB = $(OBJDIR)/libunity.a
+TEST_BLOCK_SRC = $(TESTDIR)/test_block.c
+TEST_BLOCK_BIN = $(BINDIR)/test_block
+TEST_BLOCK_OBJ = $(OBJDIR)/test_block.o
+TEST_UTILS_SRC = $(TESTDIR)/utils.c
+TEST_UTILS_OBJ = $(OBJDIR)/utils.o
+COMPDB_LIB_OBJS = \
+	$(OBJDIR)/libs_u_array.o \
+	$(OBJDIR)/libs_block.o \
+	$(OBJDIR)/libs_block_item.o \
+	$(OBJDIR)/libs_lstr.o \
+	$(OBJDIR)/libs_hex_dump.o \
+	$(OBJDIR)/libs_scribe.o \
+	$(OBJDIR)/libs_stb_impl.o
 
 # Explicit source files for server (matching your current build command)
 SERVER_LIB_SRCS = \
@@ -75,7 +93,29 @@ $(BINDIR):
 	mkdir -p $(BINDIR)
 
 # Test targets
-tests: test_hmap test_bytering
+tests: test_hmap test_bytering test-block
+
+test: test-block
+
+test-block: $(TEST_BLOCK_BIN)
+	$(TEST_BLOCK_BIN)
+
+compdb: $(COMPDB_LIB_OBJS) $(TEST_BLOCK_OBJ) $(TEST_UTILS_OBJ) $(UNITY_OBJ)
+
+$(UNITY_OBJ): $(UNITY_SRC) | $(OBJDIR)
+	$(CC) $(CFLAGS) -c $< -o $@
+
+$(UNITY_LIB): $(UNITY_OBJ)
+	ar rcs $@ $^
+
+$(TEST_UTILS_OBJ): $(TEST_UTILS_SRC) | $(OBJDIR)
+	$(CC) $(CFLAGS) -c $< -o $@
+
+$(TEST_BLOCK_BIN): $(TEST_BLOCK_SRC) $(TEST_UTILS_OBJ) $(OBJDIR)/libs_u_array.o $(LIBDIR)/block.c $(LIBDIR)/block_item.c $(LIBDIR)/lstr.c $(LIBDIR)/hex_dump.c $(LIBDIR)/stb_impl.c $(UNITY_LIB) | $(BINDIR)
+	$(CC) $(CFLAGS) $(filter-out $(UNITY_LIB),$^) -o $@ $(UNITY_LIB) $(LDFLAGS)
+
+$(TEST_BLOCK_OBJ): $(TEST_BLOCK_SRC) | $(OBJDIR)
+	$(CC) $(CFLAGS) -c $< -o $@
 
 test_hmap: $(OBJDIR)/test_hmap.o $(OBJDIR)/libs_hmap.o $(OBJDIR)/libs_lstr.o | $(BINDIR)
 	$(CC) $(CFLAGS) -o $(BINDIR)/test_hmap $^
@@ -92,7 +132,7 @@ $(OBJDIR)/test_bytering.o: $(TESTDIR)/test_bytering.c | $(OBJDIR)
 
 # Clean targets
 clean:
-	$(RM) $(OBJDIR)/*.o $(BINDIR)/* $(SERVER_EXEC)
+	$(RM) $(OBJDIR)/*.o $(OBJDIR)/*.a $(BINDIR)/* $(SERVER_EXEC)
 
 clean-all: clean
 	$(RM) -r $(OBJDIR) $(BINDIR)
@@ -106,5 +146,6 @@ lib-bytering: $(OBJDIR)/libs_bytering.o
 lib-hmap_si: $(OBJDIR)/libs_hmap_si.o
 lib-hmap: $(OBJDIR)/libs_hmap.o
 lib-u_ptr_array: $(OBJDIR)/libs_u_ptr_array.o
+lib-scribe: $(OBJDIR)/libs_scribe.o
 
-.PHONY: all server-obj client tests clean clean-all lib-u_array lib-skiplist_str lib-lstr lib-persistence3 lib-bytering lib-hmap_si lib-hmap lib-u_ptr_array
+.PHONY: all server-obj client tests test test-block compdb clean clean-all lib-u_array lib-skiplist_str lib-lstr lib-persistence3 lib-bytering lib-hmap_si lib-hmap lib-u_ptr_array lib-scribe
