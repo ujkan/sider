@@ -41,6 +41,7 @@
 #include "index_block.h"
 #include "lstr.h"
 #include "persistence.h"
+#include "scribe.h"
 #include "skiplist_str.h"
 #include "stb_ds.h"
 #include "u_array.h"
@@ -120,36 +121,34 @@ void SSTPair_free(void *ptr) {
 }
 
 void SSTPair_deserialize(struct SSTPair *pair, char **cursor) {
-  memcpy(*cursor, &pair->tag, kTagSize);
-  *cursor += kTagSize;
-  memcpy(*cursor, &pair->key.len, kLStringLenSize);
-  *cursor += kLStringLenSize;
-  memcpy(*cursor, pair->key.data, pair->key.len);
-  *cursor += pair->key.len;
-  memcpy(*cursor, &pair->tombstone, sizeof(pair->tombstone));
-  *cursor += sizeof(pair->tombstone);
-  memcpy(*cursor, &pair->value.len, kLStringLenSize);
-  *cursor += kLStringLenSize;
-  memcpy(*cursor, pair->value.data, pair->value.len);
-  *cursor += pair->value.len;
+  u8 *dst = (u8 *)*cursor;
+  scribe_put_u16(&dst, pair->tag);
+  scribe_put_u16(&dst, pair->key.len);
+  scribe_put_bytes(&dst, pair->key.data, pair->key.len);
+  scribe_put_u8(&dst, pair->tombstone);
+  scribe_put_u16(&dst, pair->value.len);
+  scribe_put_bytes(&dst, pair->value.data, pair->value.len);
+  *cursor = (char *)dst;
 }
 
 void KeyOffsetPair_deserialize(struct KeyOffsetPair *pair, char **cursor) {
-  *cursor += 2; // TODO: kTagSize
-  memcpy(&(pair->key.len), *cursor, kLStringLenSize);
-  *cursor += kLStringLenSize;
+  const u8 *src = (const u8 *)*cursor;
+  src += 2; // TODO: kTagSize
+  pair->key.len = scribe_get_u16(&src);
   pair->key.data = malloc(pair->key.len);
-  memcpy(pair->key.data, *cursor, pair->key.len);
-  *cursor += pair->key.len;
-  memcpy(&pair->offset, *cursor, sizeof(pair->offset));
-  *cursor += sizeof(pair->offset);
+  scribe_get_bytes(&src, pair->key.data, pair->key.len);
+  pair->offset = scribe_get_u32(&src);
+  *cursor = (char *)src;
 }
 
 u32 KeyOffsetPair_serialize(struct KeyOffsetPair *pair, FILE *cursor) {
-  fwrite(&kKeyTag, kTagSize, 1, cursor);
-  fwrite(&pair->key.len, kLStringLenSize, 1, cursor);
-  fwrite(pair->key.data, 1, pair->key.len, cursor);
-  fwrite(&pair->offset, sizeof(u32), 1, cursor);
+  u8 buf[2 + sizeof(pair->key.len) + pair->key.len + sizeof(pair->offset)];
+  u8 *dst = buf;
+  scribe_put_u16(&dst, kKeyTag);
+  scribe_put_u16(&dst, pair->key.len);
+  scribe_put_bytes(&dst, pair->key.data, pair->key.len);
+  scribe_put_u32(&dst, pair->offset);
+  fwrite(buf, 1, (size_t)(dst - buf), cursor);
   return kTagSize + kLStringLenSize + pair->key.len + sizeof(u32);
 }
 #define MAX_BLOCK_SIZE (320 * 1024)
@@ -286,12 +285,12 @@ void compress_and_write_v2(Array *sst_pairs, int data_len, char *write_buf,
   LString *index_block_serialized = IndexBlock_serialize(&i_block);
   // TODO: use slice/bytebuf instead of write_buf
   printf("compressed->block->len: %d\n", compressed_block->len);
-  memcpy(write_buf, compressed_block->data, compressed_block->len);
+  u8 *cursor = (u8 *)write_buf;
+  scribe_put_bytes(&cursor, compressed_block->data, compressed_block->len);
   *len += compressed_block->len;
-  write_buf += compressed_block->len;
-  memcpy(write_buf, index_block_serialized->data, index_block_serialized->len);
+  scribe_put_bytes(&cursor, index_block_serialized->data,
+                   index_block_serialized->len);
   *len += index_block_serialized->len;
-  write_buf += index_block_serialized->len;
   array_set_length(sst_pairs, 0);
 }
 
@@ -324,7 +323,7 @@ SSTable *dump_memtable_to_sst_v2(SkipList *mt, LString *filepath) {
     return 0;
   }
   // sst_pairs_init(keys, values);
-    //
+  //
   Array *sst_pairs = array_sized_new(out_count, sizeof(struct SSTPair));
   for (int i = 0; i < out_count; i++) {
     struct SSTPair sst_pair = {0};
@@ -341,9 +340,9 @@ SSTable *dump_memtable_to_sst_v2(SkipList *mt, LString *filepath) {
   if (munmap(map, size) == -1) {
     perror("Error unmapping");
   }
-if (ftruncate(fd, written_len) == -1) {
+  if (ftruncate(fd, written_len) == -1) {
     perror("ftruncate failed");
-}
+  }
   close(fd);
   sst->fd = fd;
   return sst;
@@ -356,9 +355,9 @@ if (ftruncate(fd, written_len) == -1) {
 //   sst->filepath = filepath;
 //
 //   char *fp __attribute__((__cleanup__(cleanup_char_buf)));
-//   fp = lstring_to_cstr(filepath); // 0-terminated means can copy 127 chars max
-//   FILE *fptr __attribute__((__cleanup__(cleanup_file)));
-//   fptr = fopen(fp, "a");
+//   fp = lstring_to_cstr(filepath); // 0-terminated means can copy 127 chars
+//   max FILE *fptr __attribute__((__cleanup__(cleanup_file))); fptr = fopen(fp,
+//   "a");
 //
 //   if (fptr == NULL) {
 //     return NULL;
@@ -391,7 +390,8 @@ if (ftruncate(fd, written_len) == -1) {
 //
 //   Array *data_blocks = array_sized_new(
 //       kBatchSize,
-//       sizeof(struct SSTPair)); // k_max_key_len + k_max_value_len (upper bound
+//       sizeof(struct SSTPair)); // k_max_key_len + k_max_value_len (upper
+//       bound
 //                                // for block)
 //   // --- Write the data and build the index ---
 //   for (u32 i = 0; i < out_count; i++) {
@@ -404,7 +404,8 @@ if (ftruncate(fd, written_len) == -1) {
 //       u32 current_offset = (u32)(ftell(fptr) - start_pos);
 //       array_push(
 //           offset_sparse_index,
-//           &(struct KeyOffsetPair){.key = *keys[i], .offset = current_offset});
+//           &(struct KeyOffsetPair){.key = *keys[i], .offset =
+//           current_offset});
 //     }
 //     LString *key = keys[i];
 //     LString *value = values[i];
@@ -475,31 +476,22 @@ size_t serialize_skip_list(SkipList *mt, char *buf) {
   int idx_struct_size = sizeof(struct KeyOffsetPair);
   Array *offset_sparse_index = array_sized_new(out_count, idx_struct_size);
 
-  char *start = buf;
+  u8 *start = (u8 *)buf;
   u32 batch_size = 1 << 6; // sparse index
   // write the data and build the index
   for (u32 i = 0; i < out_count; i++) {
     if (i % batch_size == 0) {
       array_push(offset_sparse_index,
                  &(struct KeyOffsetPair){.key = *keys[i],
-                                         .offset = (u32)(buf - start)});
+                                         .offset = (u32)((u8 *)buf - start)});
     }
-    memcpy(buf, &kPairTag, kTagSize);
-    buf += kTagSize;
-
-    memcpy(buf, &keys[i]->len, kLStringLenSize);
-    buf += kLStringLenSize;
-
-    memcpy(buf, keys[i]->data, keys[i]->len);
-    //     printf("DATA[i]->data: %s\n", keys[i]->data);
-    buf += keys[i]->len;
-
-    memcpy(buf, &values[i]->len, kLStringLenSize);
-    buf += kLStringLenSize;
-
-    memcpy(buf, values[i]->data, values[i]->len);
-    //     printf("values[i]->data: %s\n", values[i]->data);
-    buf += values[i]->len;
+    u8 *cursor = (u8 *)buf;
+    scribe_put_u16(&cursor, kPairTag);
+    scribe_put_u16(&cursor, keys[i]->len);
+    scribe_put_bytes(&cursor, keys[i]->data, keys[i]->len);
+    scribe_put_u16(&cursor, values[i]->len);
+    scribe_put_bytes(&cursor, values[i]->data, values[i]->len);
+    buf = (char *)cursor;
   }
 
   // write the index
@@ -509,16 +501,15 @@ size_t serialize_skip_list(SkipList *mt, char *buf) {
     LString *key =
         &(array_index(offset_sparse_index, struct KeyOffsetPair, i).key);
     //     printf("key=%p\n", key);
-    memcpy(buf, key->data, key->len);
-    buf += key->len;
-
     u32 *offset =
         &(array_index(offset_sparse_index, struct KeyOffsetPair, i).offset);
-    memcpy(buf, offset, sizeof(u32));
-    buf += sizeof(u32);
+    u8 *cursor = (u8 *)buf;
+    scribe_put_bytes(&cursor, key->data, key->len);
+    scribe_put_u32(&cursor, *offset);
+    buf = (char *)cursor;
   }
 
-  return buf - start;
+  return ((u8 *)buf) - start;
 }
 
 void deserialize_index(char *index, int len, Array *keys_out,
@@ -620,22 +611,24 @@ LString *search_in_sst(SSTable sst, LString *key) {
   // TODO: do linear search here
   printf("Beginning linear search\n");
   printf("Searching for key: %.*s\n", key->len, key->data);
+  const u8 *src;
   while (memcmp(cursor, &kPairTag, kTagSize) == 0) {
     cursor += kTagSize;
     LString k;
-    memcpy(&(k.len), cursor, kLStringLenSize);
+    src = (const u8 *)cursor;
+    k.len = scribe_get_u16(&src);
     k.data = malloc(k.len);
-    cursor += kLStringLenSize;
-    memcpy(k.data, cursor, k.len);
-    cursor += k.len;
+    scribe_get_bytes(&src, k.data, k.len);
+    cursor = (char *)src;
     printf("Current key: %.*s\n", k.len, k.data);
     if (lstring_compare(&k, key) == 0) {
       printf("Found match...\n");
       LString *value = malloc(sizeof(LString));
-      memcpy(&value->len, cursor, kLStringLenSize);
-      cursor += kLStringLenSize;
+      src = (const u8 *)cursor;
+      value->len = scribe_get_u16(&src);
       value->data = malloc(value->len);
-      memcpy(value->data, cursor, value->len);
+      scribe_get_bytes(&src, value->data, value->len);
+      cursor = (char *)src;
       free(buf);
       free(dst);
       free(k.data);
@@ -649,8 +642,10 @@ LString *search_in_sst(SSTable sst, LString *key) {
       return value;
     } else {
       u16 value_len;
-      memcpy(&value_len, cursor, kLStringLenSize);
-      cursor += value_len + kLStringLenSize;
+      src = (const u8 *)cursor;
+      value_len = scribe_get_u16(&src);
+      src += value_len;
+      cursor = (char *)src;
       free(k.data);
       continue;
     }
@@ -700,17 +695,13 @@ void SSTPair_print(struct SSTPair *pair) {
 }
 
 void SSTPair_deserialize_without_vals(struct SSTPair *pair, char *cursor) {
-  memcpy(&pair->tag, cursor, kTagSize);
-  cursor += kTagSize;
-  memcpy(&pair->key.len, cursor, kLStringLenSize);
-  cursor += kLStringLenSize;
+  const u8 *src = (const u8 *)cursor;
+  pair->tag = scribe_get_u16(&src);
+  pair->key.len = scribe_get_u16(&src);
   pair->key.data = malloc(pair->key.len);
-  memcpy(pair->key.data, cursor, pair->key.len);
-  cursor += pair->key.len;
-  memcpy(&pair->tombstone, cursor, sizeof(pair->tombstone));
-  cursor += sizeof(pair->tombstone);
-  memcpy(&pair->value.len, cursor, kLStringLenSize);
-  cursor += kLStringLenSize;
+  scribe_get_bytes(&src, pair->key.data, pair->key.len);
+  pair->tombstone = scribe_get_u8(&src);
+  pair->value.len = scribe_get_u16(&src);
   SSTPair_print(pair);
 }
 
@@ -750,15 +741,12 @@ struct CursorArray {
 void SSTPair_deserialize_without_vals_ca(struct SSTPair *pair,
                                          struct CursorArray *ca) {
   u32 cursor = ca->cursor;
-  memcpy(&pair->tag, &ca->data[cursor], kTagSize);
-  cursor += kTagSize;
-  memcpy(&pair->key.len, &ca->data[cursor], kLStringLenSize);
-  cursor += kLStringLenSize;
+  const u8 *src = (const u8 *)&ca->data[cursor];
+  pair->tag = scribe_get_u16(&src);
+  pair->key.len = scribe_get_u16(&src);
   pair->key.data = malloc(pair->key.len);
-  memcpy(pair->key.data, &ca->data[cursor], pair->key.len);
-  cursor += pair->key.len;
-  memcpy(&pair->tombstone, &ca->data[cursor], sizeof(pair->tombstone));
-  cursor += sizeof(pair->tombstone);
+  scribe_get_bytes(&src, pair->key.data, pair->key.len);
+  pair->tombstone = scribe_get_u8(&src);
   // memcpy(&pair->value.len, &ca->data[ca->cursor], kLStringLenSize);
   // ca->cursor += kLStringLenSize;
 }
@@ -767,14 +755,13 @@ char *decompress_data_block(char *data_block) {}
 
 struct ByteRing *decompress_block_br(char *block, int *compressed_block_size,
                                      int *data_len) {
-  memcpy(compressed_block_size, block, sizeof(*compressed_block_size));
-  block += sizeof(*compressed_block_size);
-  memcpy(data_len, block, sizeof(*data_len));
-  block += sizeof(*data_len);
+  const u8 *src = (const u8 *)block;
+  *compressed_block_size = scribe_get_u32(&src);
+  *data_len = scribe_get_u32(&src);
 
   struct ByteRing *decompressed = byte_ring_init(*compressed_block_size);
 
-  LZ4_decompress_safe(block, decompressed->data, *data_len,
+  LZ4_decompress_safe((const char *)src, decompressed->data, *data_len,
                       *compressed_block_size);
   decompressed->start = 0;
   decompressed->size = *compressed_block_size;
@@ -782,13 +769,13 @@ struct ByteRing *decompress_block_br(char *block, int *compressed_block_size,
 }
 
 char *decompress_block(char *block, int *compressed_block_size, int *data_len) {
-  memcpy(compressed_block_size, block, sizeof(*compressed_block_size));
-  block += sizeof(*compressed_block_size);
-  memcpy(data_len, block, sizeof(*data_len));
-  block += sizeof(*data_len);
+  const u8 *src = (const u8 *)block;
+  *compressed_block_size = scribe_get_u32(&src);
+  *data_len = scribe_get_u32(&src);
 
   char *decompressed = malloc(*data_len);
-  LZ4_decompress_safe(block, decompressed, *compressed_block_size, *data_len);
+  LZ4_decompress_safe((const char *)src, decompressed, *compressed_block_size,
+                      *data_len);
   return decompressed;
 }
 
@@ -882,17 +869,12 @@ void merge_and_compact_level_zero(Array *sstables) {
 
     // get value
     LString value;
-    memcpy(
-        &value.len,
-        &dc_block_cursors[min_index].data[dc_block_cursors[min_index].cursor],
-        kLStringLenSize);
-    dc_block_cursors[min_index].cursor += kLStringLenSize;
+    const u8 *src = (const u8 *)&dc_block_cursors[min_index]
+                        .data[dc_block_cursors[min_index].cursor];
+    value.len = scribe_get_u16(&src);
     value.data = malloc(value.len);
-    memcpy(
-        value.data,
-        &dc_block_cursors[min_index].data[dc_block_cursors[min_index].cursor],
-        value.len);
-    dc_block_cursors[min_index].cursor += value.len;
+    scribe_get_bytes(&src, value.data, value.len);
+    dc_block_cursors[min_index].cursor += kLStringLenSize + value.len;
     pairs[min_index].value = value;
 
     batch_size_in_bytes += SSTPair_get_size(&pairs[min_index]);

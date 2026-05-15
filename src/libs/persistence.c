@@ -1,6 +1,7 @@
 #include "bytering.h"
 #include "hmap_si.h"
 #include "lstr.h"
+#include "scribe.h"
 #include <alloca.h>
 #include <byteswap.h>
 #include <fcntl.h>
@@ -70,25 +71,19 @@ void serialize_kv_pair(LString *key, LString *value, char *response) {
 
   uint32_t length =
       (kKeySize + key->len + kKeySize) + (kValueSize + value->len + kValueSize);
-  memcpy(response, &length, sizeof(length));
-  response += sizeof(length);
+  u8 *cursor = (u8 *)response;
+  scribe_put_u32(&cursor, length);
 
   // WARN: dangerous to copy struct as it may copy padding
-  memcpy(response, &key->len, kKeySize);
-  response += kKeySize;
-  memcpy(response, key->data, key->len);
-  response += key->len;
-  memcpy(response, &key->len, kKeySize);
-  response += kKeySize;
+  scribe_put_u16(&cursor, key->len);
+  scribe_put_bytes(&cursor, key->data, key->len);
+  scribe_put_u16(&cursor, key->len);
 
-  memcpy(response, &value->len, kValueSize);
-  response += kValueSize;
-  memcpy(response, value->data, value->len);
-  response += value->len;
-  memcpy(response, &value->len, kValueSize);
-  response += kValueSize;
+  scribe_put_u16(&cursor, value->len);
+  scribe_put_bytes(&cursor, value->data, value->len);
+  scribe_put_u16(&cursor, value->len);
 
-  memcpy(response, &length, sizeof(length));
+  scribe_put_u32(&cursor, length);
 }
 
 void deserialize_kv_pair(char **fbuf, LString *key, LString *value) {
@@ -97,10 +92,10 @@ void deserialize_kv_pair(char **fbuf, LString *key, LString *value) {
   //          both dirs
 
   uint32_t length;
-  char *bufptr = *fbuf;
-  memcpy(&length, bufptr - sizeof(length), sizeof(length));
+  const u8 *end = (const u8 *)*fbuf;
+  const u8 *bufptr = end - sizeof(length);
+  length = scribe_get_u32(&bufptr);
   printf("bufptr: %p\n", bufptr);
-  bufptr -= sizeof(length);
   printf("length: %ld\n", length);
   // if (bufptr < length) {
   //   return;
@@ -108,25 +103,21 @@ void deserialize_kv_pair(char **fbuf, LString *key, LString *value) {
 
   //          4B  ; lenB ; 4B
   // value = [len ; data ; len]
-  memcpy(&value->len, bufptr - kValueSize, kValueSize);
-  bufptr -= kValueSize;
+  const u8 *value_len_ptr = end - sizeof(length) - kValueSize;
+  value->len = scribe_get_u16(&value_len_ptr);
   value->data = malloc(value->len);
-  memcpy(value->data, bufptr - value->len, value->len);
+  const u8 *value_data_ptr = value_len_ptr - value->len;
+  scribe_get_bytes(&value_data_ptr, value->data, value->len);
   printf("value->len: %d\n", value->len);
-  bufptr -= value->len;
-  bufptr -= kValueSize; // skip the frontal length
+  const u8 *key_len_ptr = value_len_ptr - value->len - kValueSize;
 
-  memcpy(&key->len, bufptr - kKeySize, kKeySize);
-  bufptr -= kKeySize;
+  key->len = scribe_get_u16(&key_len_ptr);
   key->data = malloc(key->len);
-  memcpy(key->data, bufptr - key->len, key->len);
+  const u8 *key_data_ptr = key_len_ptr - key->len;
+  scribe_get_bytes(&key_data_ptr, key->data, key->len);
   printf("key->len: %d\n", key->len);
-  bufptr -= key->len;
-  bufptr -= kKeySize; // skip the frontal length
 
-  bufptr -= sizeof(length);
-
-  *fbuf = bufptr;
+  *fbuf = (char *)(end - (length + 2 * sizeof(length)));
 }
 
 inline __attribute__((always_inline)) int calc_entry_len(int key_len,
