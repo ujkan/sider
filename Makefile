@@ -111,7 +111,7 @@ $(UNITY_LIB): $(UNITY_OBJ)
 $(TEST_UTILS_OBJ): $(TEST_UTILS_SRC) | $(OBJDIR)
 	$(CC) $(CFLAGS) -c $< -o $@
 
-$(TEST_BLOCK_BIN): $(TEST_BLOCK_SRC) $(TEST_UTILS_OBJ) $(OBJDIR)/libs_u_array.o $(LIBDIR)/block.c $(LIBDIR)/block_item.c $(LIBDIR)/lstr.c $(LIBDIR)/hex_dump.c $(LIBDIR)/stb_impl.c $(UNITY_LIB) | $(BINDIR)
+$(TEST_BLOCK_BIN): $(TEST_BLOCK_SRC) $(TEST_UTILS_OBJ) $(OBJDIR)/libs_u_array.o $(OBJDIR)/libs_scribe.o $(LIBDIR)/block.c $(LIBDIR)/block_item.c $(LIBDIR)/lstr.c $(LIBDIR)/hex_dump.c $(LIBDIR)/stb_impl.c $(UNITY_LIB) | $(BINDIR)
 	$(CC) $(CFLAGS) $(filter-out $(UNITY_LIB),$^) -o $@ $(UNITY_LIB) $(LDFLAGS)
 
 $(TEST_BLOCK_OBJ): $(TEST_BLOCK_SRC) | $(OBJDIR)

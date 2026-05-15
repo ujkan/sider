@@ -504,6 +504,7 @@ size_t serialize_skip_list(SkipList *mt, char *buf) {
     u32 *offset =
         &(array_index(offset_sparse_index, struct KeyOffsetPair, i).offset);
     u8 *cursor = (u8 *)buf;
+    scribe_put_u16(&cursor, key->len);
     scribe_put_bytes(&cursor, key->data, key->len);
     scribe_put_u32(&cursor, *offset);
     buf = (char *)cursor;
@@ -617,24 +618,24 @@ LString *search_in_sst(SSTable sst, LString *key) {
   // TODO: do linear search here
   printf("Beginning linear search\n");
   printf("Searching for key: %.*s\n", key->len, key->data);
-  const u8 *src;
+  const u8 *cursor_src;
   while (memcmp(cursor, &kPairTag, kTagSize) == 0) {
     cursor += kTagSize;
     LString k;
-    src = (const u8 *)cursor;
-    k.len = scribe_get_u16(&src);
+    cursor_src = (const u8 *)cursor;
+    k.len = scribe_get_u16(&cursor_src);
     k.data = malloc(k.len);
-    scribe_get_bytes(&src, k.data, k.len);
-    cursor = (char *)src;
+    scribe_get_bytes(&cursor_src, k.data, k.len);
+    cursor = (char *)cursor_src;
     printf("Current key: %.*s\n", k.len, k.data);
     if (lstring_compare(&k, key) == 0) {
       printf("Found match...\n");
       LString *value = malloc(sizeof(LString));
-      src = (const u8 *)cursor;
-      value->len = scribe_get_u16(&src);
+      cursor_src = (const u8 *)cursor;
+      value->len = scribe_get_u16(&cursor_src);
       value->data = malloc(value->len);
-      scribe_get_bytes(&src, value->data, value->len);
-      cursor = (char *)src;
+      scribe_get_bytes(&cursor_src, value->data, value->len);
+      cursor = (char *)cursor_src;
       free(buf);
       free(dst);
       free(k.data);
@@ -648,10 +649,10 @@ LString *search_in_sst(SSTable sst, LString *key) {
       return value;
     } else {
       u16 value_len;
-      src = (const u8 *)cursor;
-      value_len = scribe_get_u16(&src);
-      src += value_len;
-      cursor = (char *)src;
+      cursor_src = (const u8 *)cursor;
+      value_len = scribe_get_u16(&cursor_src);
+      cursor_src += value_len;
+      cursor = (char *)cursor_src;
       free(k.data);
       continue;
     }
