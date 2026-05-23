@@ -34,8 +34,12 @@ void DataBlock_append_entry(struct DataBlock *block, LString *key, LString *valu
 LString* DataBlock_to_LString(struct DataBlock *block);
 LString *DataBlock_compress(struct DataBlock *block,
                                   size_t *original_size);
+void DataBlock_compressed_serialize_into(struct DataBlock *block, u8 **buf);
 
 LString *RestartPoint_serialize(struct RestartPoint *rp);
 void RestartPoint_serialize_into(struct RestartPoint *rp, u8 **buf);
+struct DataBlock* DataSection_add_new_block(struct DataSection *section);
+
+void DataSection_destroy(struct DataSection *section);
 
 #endif // BLOCK_H

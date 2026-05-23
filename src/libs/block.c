@@ -15,6 +15,15 @@ void DataBlock_init(struct DataBlock *block) {
   arrsetcap(block->restart_points, 128);
 }
 
+void DataBlock_compressed_serialize_into(struct DataBlock *block, u8 **buf) {
+  size_t original_size = 0;
+  LString *compressed_block = DataBlock_compress(block, &original_size);
+  scribe_put_u32(buf, original_size);
+  scribe_put_u32(buf, compressed_block->len);
+  scribe_put_bytes(buf, compressed_block->data, compressed_block->len);
+  lstring_free(compressed_block);
+}
+
 void DataBlock_destroy(struct DataBlock *block) {
   // we do not own the keys inside blockitem
   arrfree(block->items);
@@ -72,8 +81,7 @@ void DataBlock_serialize_into(struct DataBlock *block, u8 **buf) {
   }
 }
 
-LString *DataBlock_compress(struct DataBlock *block,
-                                  size_t *original_size) {
+LString *DataBlock_compress(struct DataBlock *block, size_t *original_size) {
   u8 *buf = malloc(1024 * 1024 * 1024);
   u8 *cursor = buf;
   DataBlock_serialize_into(block, &cursor);
@@ -123,8 +131,7 @@ LString *DataSection_compress(struct DataSection *section) {
   return c;
 }
 
-void DataBlock_append_item(struct DataBlock *block,
-                                 struct BlockItem *item) {
+void DataBlock_append_item(struct DataBlock *block, struct BlockItem *item) {
   int len = arrlen(block->items);
   if (len % 32 == 0) {
     // restart point
@@ -139,7 +146,7 @@ void DataBlock_append_item(struct DataBlock *block,
 }
 
 void DataBlock_append_entry(struct DataBlock *block, LString *key,
-                                  LString *value, LString *prev) {
+                            LString *value, LString *prev) {
   if (arrlen(block->items) % 32 == 0) {
     prev = NULL;
   }
@@ -162,4 +169,18 @@ void DataBlock_append_entry(struct DataBlock *block, LString *key,
   b_item.value_len = value->len;
   b_item.value = value->data;
   DataBlock_append_item(block, &b_item);
+}
+
+struct DataBlock *DataSection_add_new_block(struct DataSection *section) {
+  struct DataBlock *new_block = arraddnptr(section->blocks, 1);
+  memset(new_block, 0, sizeof(*new_block));
+  DataBlock_init(new_block);
+  return new_block;
+}
+
+void DataSection_destroy(struct DataSection *section) {
+  for (int i = 0; i < arrlen(section->blocks); i++) {
+    DataBlock_destroy(&section->blocks[i]);
+  }
+  arrfree(section->blocks);
 }
