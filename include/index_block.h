@@ -10,11 +10,11 @@ struct IndexItem {
     u32 offset;
 };
 
-struct IndexBlock {
+struct IndexSection {
   struct IndexItem *items;
 };
 
-u32 IndexBlock_search(struct IndexBlock *iblock, LString *key);
-LString *IndexBlock_serialize(struct IndexBlock *iblock);
+u32 IndexSection_search(struct IndexSection *iblock, LString *key);
+LString *IndexSection_serialize(struct IndexSection *iblock);
 
 #endif // INDEX_BLOCK_H

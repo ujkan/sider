@@ -7,7 +7,7 @@
 #include <lz4.h>
 #include <stdlib.h>
 
-void DataBlockSingle_init(struct DataBlockSingle *block) {
+void DataBlock_init(struct DataBlock *block) {
   block->items = NULL;
   block->restart_points = NULL;
   block->items_size_bytes = 0;
@@ -15,7 +15,7 @@ void DataBlockSingle_init(struct DataBlockSingle *block) {
   arrsetcap(block->restart_points, 128);
 }
 
-void DataBlockSingle_destroy(struct DataBlockSingle *block) {
+void DataBlock_destroy(struct DataBlock *block) {
   // we do not own the keys inside blockitem
   arrfree(block->items);
   arrfree(block->restart_points);
@@ -47,7 +47,7 @@ void RestartPoint_serialize_into(struct RestartPoint *rp, u8 **buf) {
   *buf = dataptr;
 }
 
-LString *DataBlockSingle_serialize(struct DataBlockSingle *block) {
+LString *DataBlock_serialize(struct DataBlock *block) {
   u8 *buf = malloc(block->items_size_bytes);
   u8 *cursor = buf;
 
@@ -63,7 +63,7 @@ LString *DataBlockSingle_serialize(struct DataBlockSingle *block) {
   return serialized;
 }
 
-void DataBlockSingle_serialize_into(struct DataBlockSingle *block, u8 **buf) {
+void DataBlock_serialize_into(struct DataBlock *block, u8 **buf) {
   for (int i = 0; i < arrlen(block->items); i++) {
     BlockItem_serialize_into(&block->items[i], buf);
   }
@@ -72,11 +72,11 @@ void DataBlockSingle_serialize_into(struct DataBlockSingle *block, u8 **buf) {
   }
 }
 
-LString *DataBlockSingle_compress(struct DataBlockSingle *block,
+LString *DataBlock_compress(struct DataBlock *block,
                                   size_t *original_size) {
   u8 *buf = malloc(1024 * 1024 * 1024);
   u8 *cursor = buf;
-  DataBlockSingle_serialize_into(block, &cursor);
+  DataBlock_serialize_into(block, &cursor);
 
   size_t written = cursor - buf;
   int bound = LZ4_compressBound((int)(written));
@@ -94,18 +94,18 @@ LString *DataBlockSingle_compress(struct DataBlockSingle *block,
   return c;
 }
 
-LString *DataBlock_compress(struct DataBlock *block) {
+LString *DataSection_compress(struct DataSection *section) {
   u8 *buf = malloc(1024 * 1024 * 1024);
   u8 *bufptr = buf;
-  for (int j = 0; j < arrlen(block->blocks); j++) {
-    struct DataBlockSingle *b = &block->blocks[j];
+  for (int j = 0; j < arrlen(section->blocks); j++) {
+    struct DataBlock *block = &section->blocks[j];
 
-    for (int i = 0; i < arrlen(b->items); i++) {
-      LString *serialized = BlockItem_serialize(&b->items[i]);
+    for (int i = 0; i < arrlen(block->items); i++) {
+      LString *serialized = BlockItem_serialize(&block->items[i]);
       scribe_put_bytes(&bufptr, serialized->data, serialized->len);
     }
-    for (int i = 0; i < arrlen(b->restart_points); i++) {
-      LString *serialized = RestartPoint_serialize(&b->restart_points[i]);
+    for (int i = 0; i < arrlen(block->restart_points); i++) {
+      LString *serialized = RestartPoint_serialize(&block->restart_points[i]);
       scribe_put_bytes(&bufptr, serialized->data, serialized->len);
     }
   }
@@ -123,7 +123,7 @@ LString *DataBlock_compress(struct DataBlock *block) {
   return c;
 }
 
-void DataBlockSingle_append_item(struct DataBlockSingle *block,
+void DataBlock_append_item(struct DataBlock *block,
                                  struct BlockItem *item) {
   int len = arrlen(block->items);
   if (len % 32 == 0) {
@@ -138,7 +138,7 @@ void DataBlockSingle_append_item(struct DataBlockSingle *block,
   block->items_size_bytes += BlockItem_size(item);
 }
 
-void DataBlockSingle_append_entry(struct DataBlockSingle *block, LString *key,
+void DataBlock_append_entry(struct DataBlock *block, LString *key,
                                   LString *value, LString *prev) {
   if (arrlen(block->items) % 32 == 0) {
     prev = NULL;
@@ -161,5 +161,5 @@ void DataBlockSingle_append_entry(struct DataBlockSingle *block, LString *key,
   b_item.suffix = key->data + shared;
   b_item.value_len = value->len;
   b_item.value = value->data;
-  DataBlockSingle_append_item(block, &b_item);
+  DataBlock_append_item(block, &b_item);
 }

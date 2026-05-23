@@ -12,7 +12,7 @@ struct RestartPoint {
   u32 offset;
 };
 
-struct DataBlockSingle {
+struct DataBlock {
   struct BlockItem *items; // type BlockItem
   struct RestartPoint *restart_points; // type RestartPoint
   int checksum;
@@ -20,19 +20,19 @@ struct DataBlockSingle {
   // other metadata
 };
 
-struct DataBlock {
-    struct DataBlockSingle *blocks;
+struct DataSection {
+    struct DataBlock *blocks;
 };
 
-void DataBlockSingle_init(struct DataBlockSingle *block);
-void DataBlockSingle_destroy(struct DataBlockSingle *block);
-void DataBlockSingle_serialize_into(struct DataBlockSingle *block, u8 **buf);
-LString *DataBlockSingle_serialize(struct DataBlockSingle *block);
-LString *DataBlock_compress(struct DataBlock *block);
-void DataBlockSingle_append_item(struct DataBlockSingle *block, struct BlockItem *item); // implicitly manages RestartPoints !
-void DataBlockSingle_append_entry(struct DataBlockSingle *block, LString *key, LString *value, LString *prev); // nice helper
-LString* DataBlockSingle_to_LString(struct DataBlockSingle *block);
-LString *DataBlockSingle_compress(struct DataBlockSingle *block,
+void DataBlock_init(struct DataBlock *block);
+void DataBlock_destroy(struct DataBlock *block);
+void DataBlock_serialize_into(struct DataBlock *block, u8 **buf);
+LString *DataBlock_serialize(struct DataBlock *block);
+LString *DataSection_compress(struct DataSection *block);
+void DataBlock_append_item(struct DataBlock *block, struct BlockItem *item); // implicitly manages RestartPoints !
+void DataBlock_append_entry(struct DataBlock *block, LString *key, LString *value, LString *prev); // nice helper
+LString* DataBlock_to_LString(struct DataBlock *block);
+LString *DataBlock_compress(struct DataBlock *block,
                                   size_t *original_size);
 
 LString *RestartPoint_serialize(struct RestartPoint *rp);

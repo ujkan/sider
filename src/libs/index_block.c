@@ -13,7 +13,7 @@ LString *IndexItem_serialize(struct IndexItem *iitem) {
   serialized->data = data;
   return serialized;
 }
-LString *IndexBlock_serialize(struct IndexBlock *iblock) {
+LString *IndexSection_serialize(struct IndexSection *iblock) {
   u8 *buf = malloc(1024 * 1024);
   u8 *bufptr = buf;
   for (int i = 0; i < arrlen(iblock->items); i++) {
