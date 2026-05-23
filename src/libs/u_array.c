@@ -99,3 +99,15 @@ void array_set_length(Array *array, u64 length) {
   }
   farray->len = length;
 }
+
+void array_free(Array *array, bool free_seg) {
+  FullArray *farray = (FullArray *)array;
+  if (farray->element_free_func) {
+    for (u64 i = 0; i < farray->len; i++) {
+      farray->element_free_func(&farray->data[i * farray->element_size]);
+    }
+  }
+  if (free_seg) {
+    free(farray->data);
+  }
+}
