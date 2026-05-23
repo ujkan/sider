@@ -1,0 +1,26 @@
+[
+  {
+    "file": "tests/test_block.c",
+    "arguments": [
+      "/usr/bin/gcc",
+      "-I./include",
+      "-I./Unity-2.6.1/src",
+      "-I/Users/u.sulejmani/.local/include",
+      "-I/usr/include/glib-2.0",
+      "-I/usr/lib/x86_64-linux-gnu/glib-2.0/include",
+      "-I/opt/local/include",
+      "-Wall",
+      "-Wextra",
+      "-O0",
+      "-g",
+      "-c",
+      "tests/test_block.c",
+      "-o",
+      "obj/test_block.o",
+      "-I",
+      "~/.local/include"
+    ],
+    "directory": "/Users/u.sulejmani/development/_personal/build-your-own-redis",
+    "output": "obj/test_block.o"
+  }
+]

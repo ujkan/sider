@@ -18,13 +18,14 @@
 #include "hmap.h"
 #include "lstr.h"
 #include "persistence.h"
+#include "scribe.h"
 #include "skiplist_str.h"
 #include "types.h"
 #include "u_array.h"
 #include "u_ptr_array.h"
 #include <dirent.h>
 
-#define T SLQueue, SkipList *
+#define i_type SLQueue, SkipList
 #include <stc/deque.h>
 
 // TODO: Questions Q?
@@ -393,8 +394,8 @@ bool try_one_request(struct Conn *conn) {
     return false;
   }
   u32 msg_len;
-  memcpy(&msg_len, conn->incoming->data, 4);
-  msg_len = ntohl(msg_len);
+  const u8 *src = conn->incoming->data;
+  msg_len = scribe_get_u32(&src);
   if (msg_len > k_max_len) {
     msg("max len exceeded");
     byte_ring_pop_first_n(conn->incoming, 4);

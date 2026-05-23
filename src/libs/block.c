@@ -1,6 +1,7 @@
 #include "block.h"
 #include "block_item.h"
 #include "hex_dump.h"
+#include "lstr.h"
 #include "scribe.h"
 #include "stb_ds.h"
 #include <lz4.h>
@@ -45,6 +46,22 @@ void RestartPoint_serialize_into(struct RestartPoint *rp, u8 **buf) {
   scribe_put_bytes(&dataptr, rp->key.data, rp->key.len);
   scribe_put_u32(&dataptr, rp->offset);
   *buf = dataptr;
+}
+
+LString *DataBlockSingle_serialize(struct DataBlockSingle *block) {
+  u8 *buf = malloc(1024 * 1024 * 1024);
+  u8 *cursor = buf;
+
+  for (int i = 0; i < arrlen(block->items); i++) {
+    BlockItem_serialize_into(&block->items[i], &cursor);
+  }
+  for (int i = 0; i < arrlen(block->restart_points); i++) {
+    RestartPoint_serialize_into(&block->restart_points[i], &cursor);
+  }
+  LString *serialized = lstring_create(cursor - buf);
+  memcpy(serialized->data, buf, serialized->len);
+  free(buf);
+  return serialized;
 }
 
 LString *DataBlockSingle_compress(struct DataBlockSingle *block,
@@ -118,9 +135,43 @@ void DataBlockSingle_append_item(struct DataBlockSingle *block,
   arrpush(block->items, *item);
   block->items_size_bytes += BlockItem_size(item);
 }
+void DataBlockSingle_append_entry_new(struct DataBlockSingle *block,
+                                      LString *key, LString *value) {
+  LString *prev = NULL;
+  int len = arrlen(block->items);
+  if (len > 0) {
+    // prev = block->items[len - 1];
+  }
+  if (arrlen(block->items) % 32 == 0) {
+    prev = NULL;
+  }
 
+  u16 shared = 0;
+  if (prev != NULL) {
+    for (int k = 0; k < key->len && k < prev->len; k++) {
+      if (key->data[k] != prev->data[k]) {
+        break;
+      }
+      shared++;
+    }
+  }
+  u16 suffix_len = key->len - shared;
+
+  struct BlockItem b_item = {0};
+  b_item.shared = shared;
+  b_item.suffix_len = suffix_len;
+  b_item.suffix = key->data + shared;
+  b_item.value_len = value->len;
+  b_item.value = value->data;
+  DataBlockSingle_append_item(block, &b_item);
+}
+
+// TODO: remove prev from arg; the DS keeps track of prev itself! not callers!
 void DataBlockSingle_append_entry(struct DataBlockSingle *block, LString *key,
                                   LString *value, LString *prev) {
+  if (arrlen(block->items) % 32 == 0) {
+    prev = NULL;
+  }
 
   u16 shared = 0;
   if (prev != NULL) {
