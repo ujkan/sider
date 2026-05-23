@@ -7,18 +7,18 @@
 #include <lz4.h>
 #include <stdlib.h>
 
-void DataBlockSingle_init(struct DataBlockSingle *block);
-void DataBlockSingle_append_item(
-    struct DataBlockSingle *block,
-    struct BlockItem *item); // implicitly manages RestartPoints !
-LString *DataBlockSingle_to_LString(struct DataBlockSingle *block);
-
 void DataBlockSingle_init(struct DataBlockSingle *block) {
   block->items = NULL;
   block->restart_points = NULL;
   block->items_size_bytes = 0;
   arrsetcap(block->items, 512);
   arrsetcap(block->restart_points, 128);
+}
+
+void DataBlockSingle_destroy(struct DataBlockSingle *block) {
+  // we do not own the keys inside BlockItem
+  arrfree(block->items);
+  arrfree(block->restart_points);
 }
 
 LString *RestartPoint_serialize(struct RestartPoint *rp) {
@@ -41,7 +41,6 @@ void RestartPoint_serialize_into(struct RestartPoint *rp, u8 **buf) {
   //     -
   //                                       // 4 this will overflow
   u8 *dataptr = *buf;
-  printf("RestartPoint_serialize_into: rp->key.data %s\n", rp->key.data);
   scribe_put_u16(&dataptr, rp->key.len);
   scribe_put_bytes(&dataptr, rp->key.data, rp->key.len);
   scribe_put_u32(&dataptr, rp->offset);
@@ -64,18 +63,21 @@ LString *DataBlockSingle_serialize(struct DataBlockSingle *block) {
   return serialized;
 }
 
+void DataBlockSingle_serialize_into(struct DataBlockSingle *block, u8 **buf) {
+  for (int i = 0; i < arrlen(block->items); i++) {
+    BlockItem_serialize_into(&block->items[i], buf);
+  }
+  for (int i = 0; i < arrlen(block->restart_points); i++) {
+    RestartPoint_serialize_into(&block->restart_points[i], buf);
+  }
+}
+
 LString *DataBlockSingle_compress(struct DataBlockSingle *block,
                                   size_t *original_size) {
   u8 *buf = malloc(1024 * 1024 * 1024);
   u8 *cursor = buf;
+  DataBlockSingle_serialize_into(block, &cursor);
 
-  for (int i = 0; i < arrlen(block->items); i++) {
-    BlockItem_serialize_into(&block->items[i], &cursor);
-  }
-  for (int i = 0; i < arrlen(block->restart_points); i++) {
-    RestartPoint_serialize_into(&block->restart_points[i], &cursor);
-  }
-  hex_dump(buf, cursor - buf);
   size_t written = cursor - buf;
   int bound = LZ4_compressBound((int)(written));
   u8 *compressed = malloc(bound);

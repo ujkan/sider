@@ -8,7 +8,7 @@
 
 
 struct RestartPoint {
-  LString key;
+  LString key; // contains shared ref (u8 *data) to BlockItem's suffix
   u32 offset;
 };
 
@@ -25,6 +25,8 @@ struct DataBlock {
 };
 
 void DataBlockSingle_init(struct DataBlockSingle *block);
+void DataBlockSingle_destroy(struct DataBlockSingle *block);
+void DataBlockSingle_serialize_into(struct DataBlockSingle *block, u8 **buf);
 LString *DataBlockSingle_serialize(struct DataBlockSingle *block);
 LString *DataBlock_compress(struct DataBlock *block);
 void DataBlockSingle_append_item(struct DataBlockSingle *block, struct BlockItem *item); // implicitly manages RestartPoints !
