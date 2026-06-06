@@ -12,6 +12,9 @@ CXXFLAGS = -I./include -I$(UNITY_DIR) -I$(HOME)/.local/include -I/usr/include/gl
 
 # Linker flags
 LDFLAGS = -L$(HOME)/.local/lib -L/opt/local/lib -llz4
+COVERAGE_CFLAGS = $(CFLAGS) --coverage
+COVERAGE_CXXFLAGS = $(CXXFLAGS) --coverage
+COVERAGE_LDFLAGS = $(LDFLAGS) --coverage
 
 RM = rm -f
 
@@ -97,6 +100,10 @@ tests: test_hmap test_bytering test-block test-persistence
 
 test: test-block test-persistence
 
+coverage:
+	$(MAKE) clean
+	$(MAKE) CFLAGS="$(COVERAGE_CFLAGS)" CXXFLAGS="$(COVERAGE_CXXFLAGS)" LDFLAGS="$(COVERAGE_LDFLAGS)" test_hmap test_bytering test-persistence
+
 test-block: $(TEST_BLOCK_BIN)
 	$(TEST_BLOCK_BIN)
 
@@ -141,7 +148,8 @@ $(OBJDIR)/test_bytering.o: $(TESTDIR)/test_bytering.c | $(OBJDIR)
 
 # Clean targets
 clean:
-	$(RM) $(OBJDIR)/*.o $(OBJDIR)/*.a $(BINDIR)/* $(SERVER_EXEC)
+	$(RM) $(OBJDIR)/*.o $(OBJDIR)/*.a $(SERVER_EXEC)
+	$(RM) -r $(BINDIR)/*
 
 clean-all: clean
 	$(RM) -r $(OBJDIR) $(BINDIR)
@@ -157,4 +165,4 @@ lib-hmap: $(OBJDIR)/libs_hmap.o
 lib-u_ptr_array: $(OBJDIR)/libs_u_ptr_array.o
 lib-scribe: $(OBJDIR)/libs_scribe.o
 
-.PHONY: all server-obj client tests test test-block test-persistence compdb clean clean-all lib-u_array lib-skiplist_str lib-lstr lib-persistence3 lib-bytering lib-hmap_si lib-hmap lib-u_ptr_array lib-scribe
+.PHONY: all server-obj client tests test test-block test-persistence coverage compdb clean clean-all lib-u_array lib-skiplist_str lib-lstr lib-persistence3 lib-bytering lib-hmap_si lib-hmap lib-u_ptr_array lib-scribe
