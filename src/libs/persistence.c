@@ -34,17 +34,17 @@
  *
  */
 
+#include "persistence.h"
 #include "block.h"
 #include "bytering.h"
-#include <ctype.h>
 #include "hex_dump.h"
 #include "index_block.h"
 #include "lstr.h"
-#include "persistence.h"
 #include "scribe.h"
 #include "skiplist_str.h"
 #include "stb_ds.h"
 #include "u_array.h"
+#include <ctype.h>
 #include <errno.h>
 #include <fcntl.h>
 #include <lz4.h>
@@ -87,7 +87,6 @@ struct Segment {
   int fd;
   char *filename;
 };
-
 
 struct KeyOffsetPair {
   LString key;
@@ -147,10 +146,12 @@ u32 KeyOffsetPair_serialize(struct KeyOffsetPair *pair, FILE *cursor) {
   return kTagSize + kLStringLenSize + pair->key.len + sizeof(u32);
 }
 
-
 void compress_and_write(LString **keys, LString **values, char *write_buf,
-                           int *written_len) {
-
+                        int *written_len) {
+  if (arrlen(keys) == 0 || arrlen(values)) {
+    *written_len = 0;
+    return;
+  }
   LString *curr_key = keys[0];
   LString *curr_value = values[0];
   struct DataSection d_section = {0};
@@ -445,7 +446,6 @@ LString *search_in_sst(SSTable sst, LString *key) {
   free(offsets);
   return NULL;
 }
-
 
 // Helper to inspect the raw bytes of the serialized output
 void debug_dump_buffer(const char *label, const void *data, size_t size) {
