@@ -9,7 +9,7 @@
 void setUp(void) {}
 void tearDown(void) {}
 
-static void test_compress_and_write_v2_two_pairs(void) {
+static void test_compress_and_write_two_pairs(void) {
   LString first_key = {.data = (u8 *)strdup("key000"), .len = 6};
   LString first_value = {.data = (u8 *)strdup("v000"), .len = 4};
   LString second_key = {.data = (u8 *)strdup("key001"), .len = 6};
@@ -42,6 +42,6 @@ static void test_compress_and_write_v2_two_pairs(void) {
 
 int main(void) {
   UNITY_BEGIN();
-  RUN_TEST(test_compress_and_write_v2_two_pairs);
+  RUN_TEST(test_compress_and_write_two_pairs);
   return UNITY_END();
 }
