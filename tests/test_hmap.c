@@ -4,7 +4,11 @@
 #include <stdlib.h>
 #include <string.h>
 
-int dumb_hashfn(char *key, int size) { return 0; }
+u32 dumb_hashfn(LString *key, int size) {
+  (void)key;
+  (void)size;
+  return 0;
+}
 
 void test_bucket_search_key() {
   printf("test_bucket_search_key - ");
@@ -267,19 +271,19 @@ void test_get() {
   hashmap_upsert(&map, "k3", "v3");
   hashmap_upsert(&map, "k4", "v4");
   hashmap_upsert(&map, "k5", "v5");
-  if (strcmp(hashmap_get(&map, "k1"), "v1") != 0) {
+  if (strcmp((char *)hashmap_get(&map, "k1")->data, "v1") != 0) {
     failed = 1;
   }
-  if (strcmp(hashmap_get(&map, "k2"), "v2") != 0) {
+  if (strcmp((char *)hashmap_get(&map, "k2")->data, "v2") != 0) {
     failed = 1;
   }
-  if (strcmp(hashmap_get(&map, "k3"), "v3") != 0) {
+  if (strcmp((char *)hashmap_get(&map, "k3")->data, "v3") != 0) {
     failed = 1;
   }
-  if (strcmp(hashmap_get(&map, "k4"), "v4") != 0) {
+  if (strcmp((char *)hashmap_get(&map, "k4")->data, "v4") != 0) {
     failed = 1;
   }
-  if (strcmp(hashmap_get(&map, "k5"), "v5") != 0) {
+  if (strcmp((char *)hashmap_get(&map, "k5")->data, "v5") != 0) {
     failed = 1;
   }
   if (failed == 1) {

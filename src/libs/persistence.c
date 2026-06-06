@@ -80,19 +80,11 @@ static void cleanup_file(FILE **ptr) {
   fclose(*ptr);
 }
 
-static void cleanup_LString(LString *lstr) {
-  //   printf("FREEINGBUFFER\n");
-  lstring_free(lstr);
-}
 struct Segment {
   int fd;
   char *filename;
 };
-int ceil_div(int a, int b) {
-  if (a == 0)
-    return 0;
-  return 1 + ((a - 1) / b);
-}
+
 
 struct KeyOffsetPair {
   LString key;
@@ -154,42 +146,8 @@ u32 KeyOffsetPair_serialize(struct KeyOffsetPair *pair, FILE *cursor) {
 #define MAX_BLOCK_SIZE (320 * 1024)
 #define MAX_COMP_SIZE (MAX_BLOCK_SIZE + (MAX_BLOCK_SIZE / 255) + 16)
 
-void compress_and_write_v3(Array *sst_pairs, int data_len, char *write_buf) {
-  // convert sst_pairs[0] to BlockEntry
-  // set prev = sst_pairs[0].key
-  // for i=1 to pairs.len
-  //   curr = pairs[i]
-  //   shared = find_shared_prefix(curr, prev)
-  //   suffix_len = curr.len - shared
-  //   blockItem = {
-  //     shared,
-  //     suffix_len,
-  //     curr.key[shared:],
-  //     curr.value.len,
-  //     curr.value
-  //   }
-  //   out.append(blockItem.serialize())
-  //
-  // that's without the restart points
-  // let's say we choose every 16 keys to restart
-  // then in loop, add check
-  // if i % 16 == 0 and i > 0
-  //   blockItem = {
-  //     0,
-  //     curr.key.len
-  //     curr.key,
-  //     curr.value.len,
-  //     curr.value
-  //   }
-  //   restartPoint = {
-  //     curr.key,
-  //     out.cursor
-  //   }
-  //   restartPoints.append(restartPoint)
-  //
-}
 
-void compress_and_write_v2(LString **keys, LString **values, char *write_buf,
+void compress_and_write(LString **keys, LString **values, char *write_buf,
                            int *written_len) {
 
   LString *curr_key = keys[0];
@@ -258,7 +216,7 @@ SSTable *dump_memtable_to_sst_v2(SkipList *mt, LString *filepath) {
     goto cleanup;
 
   int written_len;
-  compress_and_write_v2(keys, values, map, &written_len);
+  compress_and_write(keys, values, map, &written_len);
   if (msync(map, size, MS_SYNC) == -1) {
     perror("Could not sync to disk");
     goto cleanup;
@@ -578,8 +536,6 @@ void SSTPair_deserialize_without_vals_ca(struct SSTPair *pair,
   // memcpy(&pair->value.len, &ca->data[ca->cursor], kLStringLenSize);
   // ca->cursor += kLStringLenSize;
 }
-
-char *decompress_data_block(char *data_block) {}
 
 struct ByteRing *decompress_block_br(char *block, int *compressed_block_size,
                                      int *data_len) {
