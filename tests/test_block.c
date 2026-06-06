@@ -12,15 +12,15 @@ void setUp(void) {}
 void tearDown(void) {}
 
 static void test_append_entry_computes_shared_prefix(void) {
-  struct DataBlockSingle block;
-  DataBlockSingle_init(&block);
+  struct DataBlock block;
+  DataBlock_init(&block);
 
   LString *key = lstring_create_from_buf(6, "foobar");
   LString *value = lstring_create_from_buf(5, "value");
   LString *prev = lstring_create_from_buf(3, "foo");
 
-  DataBlockSingle_append_entry(&block, prev, value, NULL);
-  DataBlockSingle_append_entry(&block, key, value, prev);
+  DataBlock_append_entry(&block, prev, value, NULL);
+  DataBlock_append_entry(&block, key, value, prev);
 
   TEST_ASSERT_EQUAL_INT(2, arrlen(block.items));
 
@@ -44,8 +44,8 @@ static void test_append_entry_computes_shared_prefix(void) {
 }
 
 static void test_append_item_stores_block_item(void) {
-  struct DataBlockSingle block;
-  DataBlockSingle_init(&block);
+  struct DataBlock block;
+  DataBlock_init(&block);
 
   struct BlockItem item = {
       .shared = 2,
@@ -55,7 +55,7 @@ static void test_append_item_stores_block_item(void) {
       .value = (u8 *)"data",
   };
 
-  DataBlockSingle_append_item(&block, &item);
+  DataBlock_append_item(&block, &item);
 
   TEST_ASSERT_EQUAL_INT(1, arrlen(block.items));
   TEST_ASSERT_EQUAL_UINT16(2, block.items[0].shared);
@@ -64,7 +64,7 @@ static void test_append_item_stores_block_item(void) {
   TEST_ASSERT_EQUAL_UINT16(4, block.items[0].value_len);
   TEST_ASSERT_EQUAL_MEMORY("data", block.items[0].value, 4);
 
-  DataBlockSingle_destroy(&block);
+  DataBlock_destroy(&block);
 }
 
 static void test_RestartPoint_serialize_into(void) {
@@ -107,20 +107,20 @@ static void test_BlockItem_serialize_into(void) {
   free(buf);
 }
 
-static void test_DataBlockSingle_serialize_into(void) {
-  struct DataBlockSingle block;
-  DataBlockSingle_init(&block);
+static void test_DataBlock_serialize_into(void) {
+  struct DataBlock block;
+  DataBlock_init(&block);
 
   LString *prev = lstring_create_from_buf(8, "prefix/a");
   LString *key = lstring_create_from_buf(8, "prefix/b");
   LString *value = lstring_create_from_buf(5, "value");
 
-  DataBlockSingle_append_entry(&block, prev, value, NULL);
-  DataBlockSingle_append_entry(&block, key, value, prev);
+  DataBlock_append_entry(&block, prev, value, NULL);
+  DataBlock_append_entry(&block, key, value, prev);
 
   u8 *buf = malloc(1024);
   u8 *cursor = buf;
-  DataBlockSingle_serialize_into(&block, &cursor);
+  DataBlock_serialize_into(&block, &cursor);
 
   // hex_dump(decompressed, 48);
 
@@ -142,7 +142,7 @@ static void test_DataBlockSingle_serialize_into(void) {
                            buf + 12 + 7 + 5 + 7, 10);
   TEST_ASSERT_EQUAL_MEMORY("\x00\x00\x00\x00", buf + 12 + 7 + 5 + 7 + 10, 4);
 
-  DataBlockSingle_destroy(&block);
+  DataBlock_destroy(&block);
   free(prev);
   free(key);
   free(value);
@@ -150,19 +150,19 @@ static void test_DataBlockSingle_serialize_into(void) {
 }
 
 
-static void test_DataBlockSingle_append_many(void) {
-  struct DataBlockSingle block;
-  DataBlockSingle_init(&block);
+static void test_DataBlock_append_many(void) {
+  struct DataBlock block;
+  DataBlock_init(&block);
   struct SSTPair prev = {0};
   Array *pairs = test_utils_generate_kv_pairs(64);
   for (int i = 0; i < 64; i++) {
     struct SSTPair pair = array_index(pairs, struct SSTPair, i);
     // printf("%s\n", pair.key.data);
-    DataBlockSingle_append_entry(&block, &pair.key, &pair.value, &prev.key);
+    DataBlock_append_entry(&block, &pair.key, &pair.value, &prev.key);
     prev = pair;
   }
 
-  LString *s = DataBlockSingle_serialize(&block);
+  LString *s = DataBlock_serialize(&block);
   // hex_dump(s->data, s->len);
 
   TEST_ASSERT_EQUAL_INT(2, arrlen(block.restart_points));
@@ -184,7 +184,7 @@ static void test_DataBlockSingle_append_many(void) {
     snprintf(b, sizeof(b), "%01d", i);
     TEST_ASSERT_EQUAL_MEMORY(b, (s->data + 20) + (ptrdiff_t)((i - 1) * 11), 1);
   }
-    DataBlockSingle_destroy(&block);
+    DataBlock_destroy(&block);
     lstring_free(s);
     for (int i = 0; i < 64; i++) {
         struct SSTPair pair = array_index(pairs, struct SSTPair, i);
@@ -199,7 +199,7 @@ int main(void) {
   RUN_TEST(test_append_item_stores_block_item);
   RUN_TEST(test_RestartPoint_serialize_into);
   RUN_TEST(test_BlockItem_serialize_into);
-  RUN_TEST(test_DataBlockSingle_serialize_into);
-  RUN_TEST(test_DataBlockSingle_append_many);
+  RUN_TEST(test_DataBlock_serialize_into);
+  RUN_TEST(test_DataBlock_append_many);
   return UNITY_END();
 }

@@ -1,6 +1,6 @@
 [
   {
-    "file": "src/libs/persistence.c",
+    "file": "src/server.c",
     "arguments": [
       "/usr/bin/gcc",
       "-I./include",
@@ -14,11 +14,11 @@
       "-O0",
       "-g",
       "-c",
-      "src/libs/persistence.c",
+      "src/server.c",
       "-o",
-      "obj/libs_persistence.o"
+      "obj/server.o"
     ],
     "directory": "/Users/u.sulejmani/development/_personal/build-your-own-redis",
-    "output": "obj/libs_persistence.o"
+    "output": "obj/server.o"
   }
 ]

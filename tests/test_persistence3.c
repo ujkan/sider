@@ -25,7 +25,7 @@ static void test_compress_and_write_v2_two_pairs(void) {
   arrpush(keys, &second_key);
   arrpush(values, &second_value);
 
-  compress_and_write_v2(keys, values, (char *)buf, &written_len);
+  compress_and_write(keys, values, (char *)buf, &written_len);
 
   TEST_ASSERT_GREATER_THAN_INT(0, written_len);
   hex_dump(buf, 60);

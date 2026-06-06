@@ -312,8 +312,8 @@ void handle_command(struct Command *cmd, struct Response *out) {
       out->data_len = value->len;
     } else {
       pthread_mutex_lock(&store->inactive_memtables.lock);
-      for (c_each(table, SLQueue, store->inactive_memtables.queue)) {
-        value = sl_s_find(*table.ref, key);
+      c_foreach(table, SLQueue, store->inactive_memtables.queue) {
+        value = sl_s_find(table.ref, key);
         if (value) {
           out->status = 0;
           memcpy(out->data, value->data, value->len);
@@ -369,7 +369,7 @@ void handle_command(struct Command *cmd, struct Response *out) {
     if (store->active_memtable->size_in_bytes > kMemtableLimit) {
       pthread_mutex_lock(&store->inactive_memtables.lock);
       SLQueue_push_back(&store->inactive_memtables.queue,
-                        store->active_memtable);
+                        *store->active_memtable);
 
       pthread_cond_signal(&store->inactive_memtables.condition);
       pthread_mutex_unlock(&store->inactive_memtables.lock);
@@ -491,7 +491,7 @@ void *dump_memtable_to_sstable(void *arg) {
       break;
     }
 
-    SkipList *mt = *SLQueue_front(&inactive_memtables->queue);
+    SkipList *mt = SLQueue_front(&inactive_memtables->queue);
     SLQueue_pop_front(&inactive_memtables->queue);
 
     pthread_mutex_unlock(&inactive_memtables->lock);

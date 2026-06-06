@@ -31,7 +31,7 @@ int main(void) {
   char *buf = malloc(1024 * 1024 * 1024);
   char *decomp = malloc(1024 * 1024 * 1024);
   int len = 0;
-  compress_and_write_v2(pairs, 0, buf, &len);
+  compress_and_write(pairs, 0, buf, &len);
   int decomp_len = LZ4_decompress_safe(buf, decomp, len, 1024 * 1024 * 1024);
   printf("DECOMPL_LEN: %d\n", decomp_len);
   hex_dump(decomp, 1024 * 1024 * 8);

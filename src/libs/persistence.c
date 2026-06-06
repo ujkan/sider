@@ -36,7 +36,7 @@
 
 #include "block.h"
 #include "bytering.h"
-#include "disk_block.h"
+#include <ctype.h>
 #include "hex_dump.h"
 #include "index_block.h"
 #include "lstr.h"
@@ -59,6 +59,9 @@
 #include <sys/stat.h>
 #include <time.h>
 #include <unistd.h>
+
+#define MAX_BLOCK_SIZE (320 * 1024)
+#define MAX_COMP_SIZE (MAX_BLOCK_SIZE + (MAX_BLOCK_SIZE / 255) + 16)
 const u32 kTagSize = 2; // bytes
 u16 kKeyTag = 0;
 u16 kValueTag = 1;
@@ -143,8 +146,6 @@ u32 KeyOffsetPair_serialize(struct KeyOffsetPair *pair, FILE *cursor) {
   fwrite(buf, 1, (size_t)(dst - buf), cursor);
   return kTagSize + kLStringLenSize + pair->key.len + sizeof(u32);
 }
-#define MAX_BLOCK_SIZE (320 * 1024)
-#define MAX_COMP_SIZE (MAX_BLOCK_SIZE + (MAX_BLOCK_SIZE / 255) + 16)
 
 
 void compress_and_write(LString **keys, LString **values, char *write_buf,
@@ -445,7 +446,6 @@ LString *search_in_sst(SSTable sst, LString *key) {
   return NULL;
 }
 
-#include <ctype.h>
 
 // Helper to inspect the raw bytes of the serialized output
 void debug_dump_buffer(const char *label, const void *data, size_t size) {
