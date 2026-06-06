@@ -31,14 +31,12 @@ TEST_PERSISTENCE3_SRC = $(TESTDIR)/test_persistence3.c
 TEST_PERSISTENCE3_BIN = $(BINDIR)/test_persistence3
 TEST_UTILS_SRC = $(TESTDIR)/utils.c
 TEST_UTILS_OBJ = $(OBJDIR)/utils.o
-COMPDB_LIB_OBJS = \
-	$(OBJDIR)/libs_u_array.o \
-	$(OBJDIR)/libs_block.o \
-	$(OBJDIR)/libs_block_item.o \
-	$(OBJDIR)/libs_lstr.o \
-	$(OBJDIR)/libs_hex_dump.o \
-	$(OBJDIR)/libs_scribe.o \
-	$(OBJDIR)/libs_stb_impl.o
+COMPDB_LIB_SRCS = $(wildcard $(LIBDIR)/*.c)
+COMPDB_TEST_SRCS = $(wildcard $(TESTDIR)/*.c)
+COMPDB_OBJS = $(patsubst $(LIBDIR)/%.c,$(OBJDIR)/libs_%.o,$(COMPDB_LIB_SRCS)) \
+	$(patsubst $(TESTDIR)/%.c,$(OBJDIR)/%.o,$(COMPDB_TEST_SRCS)) \
+	$(OBJDIR)/server.o \
+	$(UNITY_OBJ)
 
 # Explicit source files for server (matching your current build command)
 SERVER_LIB_SRCS = \
@@ -105,7 +103,7 @@ test-block: $(TEST_BLOCK_BIN)
 test-persistence3: $(TEST_PERSISTENCE3_BIN)
 	$(TEST_PERSISTENCE3_BIN)
 
-compdb: $(COMPDB_LIB_OBJS) $(TEST_BLOCK_OBJ) $(TEST_UTILS_OBJ) $(UNITY_OBJ)
+compdb: $(COMPDB_OBJS)
 
 $(UNITY_OBJ): $(UNITY_SRC) | $(OBJDIR)
 	$(CC) $(CFLAGS) -c $< -o $@
@@ -120,6 +118,9 @@ $(TEST_BLOCK_BIN): $(TEST_BLOCK_SRC) $(TEST_UTILS_OBJ) $(OBJDIR)/libs_u_array.o 
 	$(CC) $(CFLAGS) $(filter-out $(UNITY_LIB),$^) -o $@ $(UNITY_LIB) $(LDFLAGS)
 
 $(TEST_BLOCK_OBJ): $(TEST_BLOCK_SRC) | $(OBJDIR)
+	$(CC) $(CFLAGS) -c $< -o $@
+
+$(OBJDIR)/%.o: $(TESTDIR)/%.c | $(OBJDIR)
 	$(CC) $(CFLAGS) -c $< -o $@
 
 $(TEST_PERSISTENCE3_BIN): $(TEST_PERSISTENCE3_SRC) $(SERVER_LIB_OBJS) $(OBJDIR)/libs_block.o $(OBJDIR)/libs_block_item.o $(OBJDIR)/libs_index_block.o $(OBJDIR)/libs_hex_dump.o $(OBJDIR)/libs_scribe.o $(OBJDIR)/libs_stb_impl.o $(UNITY_LIB) | $(BINDIR)
