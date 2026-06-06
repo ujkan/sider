@@ -148,7 +148,7 @@ u32 KeyOffsetPair_serialize(struct KeyOffsetPair *pair, FILE *cursor) {
 
 void compress_and_write(LString **keys, LString **values, char *write_buf,
                         int *written_len) {
-  if (arrlen(keys) == 0 || arrlen(values)) {
+  if (arrlen(keys) == 0 || arrlen(values) == 0) {
     *written_len = 0;
     return;
   }
