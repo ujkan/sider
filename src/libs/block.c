@@ -16,12 +16,15 @@ void DataBlock_init(struct DataBlock *block) {
 }
 
 void DataBlock_compressed_serialize_into(struct DataBlock *block, u8 **buf) {
-  size_t original_size = 0;
-  LString *compressed_block = DataBlock_compress(block, &original_size);
+  size_t original_size = block->items_size_bytes;
   scribe_put_u32(buf, original_size);
-  scribe_put_u32(buf, compressed_block->len);
-  scribe_put_bytes(buf, compressed_block->data, compressed_block->len);
-  lstring_free(compressed_block);
+  scribe_put_u32(buf, original_size);
+  DataBlock_serialize_into(block, buf);
+  // LString *compressed_block = DataBlock_compress(block, &original_size);
+  // scribe_put_u32(buf, original_size);
+  // scribe_put_u32(buf, compressed_block->len);
+  // scribe_put_bytes(buf, compressed_block->data, compressed_block->len);
+  // lstring_free(compressed_block);
 }
 
 void DataBlock_destroy(struct DataBlock *block) {

@@ -189,40 +189,42 @@ void compress_and_write_v3(Array *sst_pairs, int data_len, char *write_buf) {
   //
 }
 
-void compress_and_write_v2(Array *sst_pairs, int data_len, char *write_buf,
-                           int *len) {
+void compress_and_write_v2(LString **keys, LString **values, char *write_buf,
+                           int *written_len) {
 
-  struct SSTPair curr = array_index(sst_pairs, struct SSTPair, 0);
+  LString *curr_key = keys[0];
+  LString *curr_value = values[0];
   struct DataSection d_section = {0};
   arrsetcap(d_section.blocks, 128);
   struct DataBlock *curr_block = DataSection_add_new_block(&d_section);
 
-  DataBlock_append_entry(curr_block, &curr.key, &curr.value, NULL);
-  LString *prev_key = &curr.key;
+  DataBlock_append_entry(curr_block, curr_key, curr_value, NULL);
+  LString *prev_key = curr_key;
   // TODO: should we copy curr.key here or just "borrow" it or get its ref?
-  struct IndexItem curr_index_item = {.key = &curr.key, .offset = 0};
+  struct IndexItem curr_index_item = {.key = curr_key, .offset = 0};
   struct IndexSection i_section = {0};
   arrsetcap(i_section.items, 128);
   arrpush(i_section.items, curr_index_item);
 
   u8 *cursor = (u8 *)write_buf;
-  for (u32 j = 1; j < sst_pairs->len; j++) {
-    curr = array_index(sst_pairs, struct SSTPair, j);
-    prev_key = &array_index(sst_pairs, struct SSTPair, j - 1).key;
+  for (u32 j = 1; j < arrlen(keys); j++) {
+    curr_key = keys[j];
+    curr_value = values[j];
+    prev_key = keys[j - 1];
     if (j % 128 == 0) {
       DataBlock_compressed_serialize_into(curr_block, &cursor);
       curr_block = DataSection_add_new_block(&d_section);
-      curr_index_item.key = &curr.key;
+      curr_index_item.key = curr_key;
       curr_index_item.offset = cursor - (u8 *)write_buf;
       arrpush(i_section.items, curr_index_item);
     }
-    DataBlock_append_entry(curr_block, &curr.key, &curr.value, prev_key);
+    DataBlock_append_entry(curr_block, curr_key, curr_value, prev_key);
   }
   DataBlock_compressed_serialize_into(curr_block, &cursor);
   LString *index_block_serialized = IndexSection_serialize(&i_section);
   scribe_put_bytes(&cursor, index_block_serialized->data,
                    index_block_serialized->len);
-  *len = (cursor - (u8 *)write_buf);
+  *written_len = (cursor - (u8 *)write_buf);
   DataSection_destroy(&d_section);
   lstring_free(index_block_serialized);
   arrfree(i_section.items);
@@ -233,7 +235,6 @@ SSTable *dump_memtable_to_sst_v2(SkipList *mt, LString *filepath) {
   SSTable *result = NULL;
   LString **keys = NULL;
   LString **values = NULL;
-  Array *sst_pairs = NULL;
   int fd = -1;
   char *map = MAP_FAILED;
   size_t size = 1024 * 1024 * 128;
@@ -256,18 +257,8 @@ SSTable *dump_memtable_to_sst_v2(SkipList *mt, LString *filepath) {
   if (map == MAP_FAILED)
     goto cleanup;
 
-  // sst_pairs_init(keys, values);
-  //
-  sst_pairs = array_new_full(out_count, sizeof(struct SSTPair), SSTPair_free);
-  for (u32 i = 0; i < out_count; i++) {
-    struct SSTPair sst_pair = {0};
-    sst_pair.tag = kPairTag;
-    sst_pair.key = *keys[i];
-    sst_pair.value = *values[i];
-    array_push(sst_pairs, &sst_pair);
-  }
   int written_len;
-  compress_and_write_v2(sst_pairs, 0, map, &written_len);
+  compress_and_write_v2(keys, values, map, &written_len);
   if (msync(map, size, MS_SYNC) == -1) {
     perror("Could not sync to disk");
     goto cleanup;
@@ -284,8 +275,6 @@ cleanup:
   free((void *)keys);
   free((void *)values);
 
-  if (sst_pairs)
-    array_free(sst_pairs, true);
   if (map != MAP_FAILED)
     munmap(map, size);
   if (fd != -1)
@@ -769,4 +758,3 @@ void merge_and_compact_level_zero(Array *sstables) {
 //   burma, bv
 //   canada, cv
 //   cyprus, cv
-
