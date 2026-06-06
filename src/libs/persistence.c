@@ -219,19 +219,21 @@ SSTable *dump_memtable_to_sst_v2(SkipList *mt, LString *filepath) {
 
   int written_len;
   compress_and_write(keys, values, map, &written_len);
-  if (msync(map, size, MS_SYNC) == -1) {
-    perror("Could not sync to disk");
-    goto cleanup;
-  }
   if (ftruncate(fd, written_len) == -1) {
     perror("ftruncate failed");
     goto cleanup;
   }
-  sst->fd = -1;
+
+  if (msync(map, written_len, MS_SYNC) == -1) {
+    perror("Could not sync to disk");
+    goto cleanup;
+  }
   result = sst;
   sst = NULL;
 cleanup:
   free(sst);
+  if (fp)
+    free(fp);
   free((void *)keys);
   free((void *)values);
 
