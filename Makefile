@@ -27,6 +27,8 @@ UNITY_LIB = $(OBJDIR)/libunity.a
 TEST_BLOCK_SRC = $(TESTDIR)/test_block.c
 TEST_BLOCK_BIN = $(BINDIR)/test_block
 TEST_BLOCK_OBJ = $(OBJDIR)/test_block.o
+TEST_PERSISTENCE3_SRC = $(TESTDIR)/test_persistence3.c
+TEST_PERSISTENCE3_BIN = $(BINDIR)/test_persistence3
 TEST_UTILS_SRC = $(TESTDIR)/utils.c
 TEST_UTILS_OBJ = $(OBJDIR)/utils.o
 COMPDB_LIB_OBJS = \
@@ -93,12 +95,15 @@ $(BINDIR):
 	mkdir -p $(BINDIR)
 
 # Test targets
-tests: test_hmap test_bytering test-block
+tests: test_hmap test_bytering test-block test-persistence3
 
-test: test-block
+test: test-block test-persistence3
 
 test-block: $(TEST_BLOCK_BIN)
 	$(TEST_BLOCK_BIN)
+
+test-persistence3: $(TEST_PERSISTENCE3_BIN)
+	$(TEST_PERSISTENCE3_BIN)
 
 compdb: $(COMPDB_LIB_OBJS) $(TEST_BLOCK_OBJ) $(TEST_UTILS_OBJ) $(UNITY_OBJ)
 
@@ -116,6 +121,9 @@ $(TEST_BLOCK_BIN): $(TEST_BLOCK_SRC) $(TEST_UTILS_OBJ) $(OBJDIR)/libs_u_array.o 
 
 $(TEST_BLOCK_OBJ): $(TEST_BLOCK_SRC) | $(OBJDIR)
 	$(CC) $(CFLAGS) -c $< -o $@
+
+$(TEST_PERSISTENCE3_BIN): $(TEST_PERSISTENCE3_SRC) $(SERVER_LIB_OBJS) $(OBJDIR)/libs_block.o $(OBJDIR)/libs_block_item.o $(OBJDIR)/libs_index_block.o $(OBJDIR)/libs_hex_dump.o $(OBJDIR)/libs_scribe.o $(OBJDIR)/libs_stb_impl.o $(UNITY_LIB) | $(BINDIR)
+	$(CC) $(CFLAGS) $(filter-out $(UNITY_LIB),$^) -o $@ $(UNITY_LIB) $(LDFLAGS)
 
 test_hmap: $(OBJDIR)/test_hmap.o $(OBJDIR)/libs_hmap.o $(OBJDIR)/libs_lstr.o | $(BINDIR)
 	$(CC) $(CFLAGS) -o $(BINDIR)/test_hmap $^
@@ -148,4 +156,4 @@ lib-hmap: $(OBJDIR)/libs_hmap.o
 lib-u_ptr_array: $(OBJDIR)/libs_u_ptr_array.o
 lib-scribe: $(OBJDIR)/libs_scribe.o
 
-.PHONY: all server-obj client tests test test-block compdb clean clean-all lib-u_array lib-skiplist_str lib-lstr lib-persistence3 lib-bytering lib-hmap_si lib-hmap lib-u_ptr_array lib-scribe
+.PHONY: all server-obj client tests test test-block test-persistence3 compdb clean clean-all lib-u_array lib-skiplist_str lib-lstr lib-persistence3 lib-bytering lib-hmap_si lib-hmap lib-u_ptr_array lib-scribe
