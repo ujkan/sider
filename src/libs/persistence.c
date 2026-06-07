@@ -190,6 +190,7 @@ SSTable *dump_memtable_to_sst(SkipList *mt, LString *filepath) {
   SSTable *result = NULL;
   LString **keys = NULL;
   LString **values = NULL;
+  char *fp = NULL;
   int fd = -1;
   char *map = MAP_FAILED;
   size_t size = 1024 * 1024 * 128;
@@ -202,7 +203,6 @@ SSTable *dump_memtable_to_sst(SkipList *mt, LString *filepath) {
   if (out_count == 0)
     goto cleanup;
 
-  char *fp;
   fp = lstring_to_cstr(filepath); // 0-terminated means can copy 127 chars max
   fd = open(fp, O_RDWR | O_CREAT | O_TRUNC, 0644);
   if (ftruncate(fd, size) == -1)
