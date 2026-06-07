@@ -14,9 +14,10 @@ LString *IndexItem_serialize(struct IndexItem *iitem);
 
 struct IndexSection {
   struct IndexItem *items;
+  u32 *restart_points; // TODO: not needed here; only for in-file repr; once we have IndexItem *items it means we already know indices!
 };
 
-u32 IndexSection_search(struct IndexSection *iblock, LString *key);
+struct IndexItem *IndexSection_search(char *index_section, u32 *index_section_restart_points, u32 count, LString *key);
 LString *IndexSection_serialize(struct IndexSection *iblock);
 struct IndexSection *IndexSection_deserialize(char *buf, u32 len);
 
