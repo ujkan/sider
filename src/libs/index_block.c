@@ -3,9 +3,10 @@
 #include <stdlib.h>
 
 LString *IndexItem_serialize(struct IndexItem *iitem) {
-  u16 len = iitem->key->len + sizeof(iitem->offset);
+  u16 len = iitem->key->len + sizeof(iitem->offset) + sizeof(iitem->key->len);
   u8 *data = malloc(len);
   u8 *dataptr = data;
+  scribe_put_u16(&dataptr, iitem->key->len);
   scribe_put_bytes(&dataptr, iitem->key->data, iitem->key->len);
   scribe_put_u32(&dataptr, iitem->offset);
   LString *serialized = malloc(sizeof(LString));
@@ -26,3 +27,5 @@ LString *IndexSection_serialize(struct IndexSection *iblock) {
   serialized->data = buf;
   return serialized;
 }
+
+struct IndexSection *IndexSection_deserialize(char *buf, u32 len) {}
