@@ -1,4 +1,5 @@
 #include "index_block.h"
+#include "lstr.h"
 #include "scribe.h"
 #include <stdlib.h>
 
@@ -28,4 +29,18 @@ LString *IndexSection_serialize(struct IndexSection *iblock) {
   return serialized;
 }
 
-struct IndexSection *IndexSection_deserialize(char *buf, u32 len) {}
+struct IndexSection *IndexSection_deserialize(char *buf, u32 len) {
+  struct IndexSection *section = malloc(sizeof(struct IndexSection));
+  section->items = NULL;
+  u8 *bufptr = (u8 *)buf;
+  arrsetcap(section->items, 32);
+  while ((bufptr - (u8 *)buf) < len) {
+    LString *key = lstring_deserialize((const u8 **)&bufptr);
+    u32 offset = scribe_get_u32((const u8 **)(&bufptr));
+    struct IndexItem item = {0};
+    item.key = key;
+    item.offset = offset;
+    arrpush(section->items, item);
+  }
+  return section;
+}

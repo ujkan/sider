@@ -1,5 +1,4 @@
-#ifndef LSTR_H
-#define LSTR_H
+#pragma once
 #include "types.h"
 typedef struct LString LString;
 extern const int kLStringLenSize;
@@ -13,5 +12,5 @@ LString *lstring_create(u16 size);
 LString *lstring_create_from_buf(int size, const char *buf);
 char *lstring_to_cstr(LString *s);
 i32 lstring_compare(const LString *a, const LString *b);
+LString *lstring_deserialize(const u8 **buf);
 
-#endif // LSTR_H

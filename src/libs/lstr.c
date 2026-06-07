@@ -1,4 +1,6 @@
 #include "lstr.h"
+#include "scribe.h"
+#include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 
@@ -12,6 +14,13 @@ char *lstring_to_cstr(LString *s) {
   memcpy(cstr, s->data, s->len);
   cstr[s->len] = 0;
   return cstr;
+}
+
+LString *lstring_deserialize(const u8 **buf) {
+  u16 len = scribe_get_u16(buf);
+  LString *lstr = lstring_create_from_buf(len, (char *)(*buf));
+  *buf += len;
+  return lstr;
 }
 
 LString *lstring_create(u16 size) {
