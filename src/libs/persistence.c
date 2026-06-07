@@ -83,11 +83,6 @@ static void cleanup_file(FILE **ptr) {
   fclose(*ptr);
 }
 
-struct Segment {
-  int fd;
-  char *filename;
-};
-
 struct KeyOffsetPair {
   LString key;
   u32 offset;
@@ -190,7 +185,7 @@ void compress_and_write(LString **keys, LString **values, char *write_buf,
   arrfree(i_section.items);
 }
 
-SSTable *dump_memtable_to_sst_v2(SkipList *mt, LString *filepath) {
+SSTable *dump_memtable_to_sst(SkipList *mt, LString *filepath) {
   SSTable *sst = NULL;
   SSTable *result = NULL;
   LString **keys = NULL;
@@ -310,6 +305,22 @@ FILE *sstable_open_file(SSTable *sst) {
   fp = lstring_to_cstr(sst->filepath);
   FILE *fptr = fopen(fp, "r");
   return fptr;
+}
+
+LString *search_in_sst_v2(SSTable sst, LString *key) {
+
+  FILE *fptr __attribute__((__cleanup__(cleanup_file)));
+  //
+  fptr = sstable_open_file(&sst);
+  if (fptr == NULL) {
+    int err = errno;
+    printf("ERROR [%d]: cannot open file '%.*s'\n", err, sst.filepath->len,
+           sst.filepath->data);
+    return NULL;
+  }
+
+  struct stat st;
+  fstat(fileno(fptr), &st);
 }
 
 LString *search_in_sst(SSTable sst, LString *key) {

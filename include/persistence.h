@@ -16,5 +16,3 @@ void compress_and_write(LString **keys, LString **values, char *write_buf,
                            int *written_len);
 LString* search_in_sst(SSTable sst, LString *key);
 void merge_and_compact_level_zero(Array *sstables);
-
-SSTable *dump_memtable_to_sst_v2(SkipList *sl, LString *filepath);
