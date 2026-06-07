@@ -32,8 +32,12 @@ TEST_BLOCK_BIN = $(BINDIR)/test_block
 TEST_BLOCK_OBJ = $(OBJDIR)/test_block.o
 TEST_PERSISTENCE_SRC = $(TESTDIR)/test_persistence.c
 TEST_PERSISTENCE_BIN = $(BINDIR)/test_persistence
+TEST_INDEX_SECTION_SRC = $(TESTDIR)/test_index_section.c
+TEST_INDEX_SECTION_BIN = $(BINDIR)/test_index_section
 TEST_UTILS_SRC = $(TESTDIR)/utils.c
 TEST_UTILS_OBJ = $(OBJDIR)/utils.o
+TEST_SRCS = $(filter-out $(TESTDIR)/utils.c,$(wildcard $(TESTDIR)/*.c))
+TEST_BINS = $(patsubst $(TESTDIR)/%.c,$(BINDIR)/%,$(TEST_SRCS))
 COMPDB_LIB_SRCS = $(wildcard $(LIBDIR)/*.c)
 COMPDB_TEST_SRCS = $(wildcard $(TESTDIR)/*.c)
 COMPDB_OBJS = $(patsubst $(LIBDIR)/%.c,$(OBJDIR)/libs_%.o,$(COMPDB_LIB_SRCS)) \
@@ -62,6 +66,13 @@ CLIENT_EXEC = $(BINDIR)/client
 # Object files (optional, for incremental builds)
 SERVER_LIB_OBJS = $(patsubst $(LIBDIR)/%.c,$(OBJDIR)/libs_%.o,$(SERVER_LIB_SRCS))
 SERVER_OBJ = $(OBJDIR)/server.o
+
+# Dependency bundles for tests
+CORE_OBJS = $(OBJDIR)/libs_u_array.o $(OBJDIR)/libs_lstr.o $(OBJDIR)/libs_scribe.o $(OBJDIR)/libs_stb_impl.o
+BLOCK_OBJS = $(CORE_OBJS) $(OBJDIR)/libs_block.o $(OBJDIR)/libs_block_item.o $(OBJDIR)/libs_index_block.o $(OBJDIR)/libs_hex_dump.o
+PERSISTENCE_OBJS = $(BLOCK_OBJS) $(OBJDIR)/libs_persistence.o $(OBJDIR)/libs_bytering.o $(OBJDIR)/libs_hmap_si.o $(OBJDIR)/libs_hmap.o $(OBJDIR)/libs_u_ptr_array.o
+HMAP_OBJS = $(CORE_OBJS) $(OBJDIR)/libs_hmap.o $(OBJDIR)/libs_hmap_si.o
+BYTERING_OBJS = $(CORE_OBJS) $(OBJDIR)/libs_bytering.o
 
 # Default target
 all: $(SERVER_EXEC)
@@ -96,19 +107,29 @@ $(BINDIR):
 	mkdir -p $(BINDIR)
 
 # Test targets
-tests: test_hmap test_bytering test-block test-persistence
+tests: $(TEST_BINS)
+	@for t in $(TEST_BINS); do $$t; done
 
-test: test-block test-persistence
+test: tests
 
 coverage:
 	$(MAKE) clean
-	$(MAKE) CFLAGS="$(COVERAGE_CFLAGS)" CXXFLAGS="$(COVERAGE_CXXFLAGS)" LDFLAGS="$(COVERAGE_LDFLAGS)" test_hmap test_bytering test-persistence
+	$(MAKE) CFLAGS="$(COVERAGE_CFLAGS)" CXXFLAGS="$(COVERAGE_CXXFLAGS)" LDFLAGS="$(COVERAGE_LDFLAGS)" tests
 
 test-block: $(TEST_BLOCK_BIN)
 	$(TEST_BLOCK_BIN)
 
 test-persistence: $(TEST_PERSISTENCE_BIN)
 	$(TEST_PERSISTENCE_BIN)
+
+test-index-section: $(TEST_INDEX_SECTION_BIN)
+	$(TEST_INDEX_SECTION_BIN)
+
+test_hmap: $(BINDIR)/test_hmap
+	$<
+
+test_bytering: $(BINDIR)/test_bytering
+	$<
 
 compdb: $(COMPDB_OBJS)
 
@@ -121,8 +142,15 @@ $(UNITY_LIB): $(UNITY_OBJ)
 $(TEST_UTILS_OBJ): $(TEST_UTILS_SRC) | $(OBJDIR)
 	$(CC) $(CFLAGS) -c $< -o $@
 
-$(TEST_BLOCK_BIN): $(TEST_BLOCK_SRC) $(TEST_UTILS_OBJ) $(OBJDIR)/libs_u_array.o $(OBJDIR)/libs_scribe.o $(LIBDIR)/block.c $(LIBDIR)/block_item.c $(LIBDIR)/lstr.c $(LIBDIR)/hex_dump.c $(LIBDIR)/stb_impl.c $(UNITY_LIB) | $(BINDIR)
-	$(CC) $(CFLAGS) $(filter-out $(UNITY_LIB),$^) -o $@ $(UNITY_LIB) $(LDFLAGS)
+TEST_DEPS_test_block = $(TEST_UTILS_OBJ) $(BLOCK_OBJS)
+TEST_DEPS_test_persistence = $(PERSISTENCE_OBJS)
+TEST_DEPS_test_index_section = $(BLOCK_OBJS)
+TEST_DEPS_test_hmap = $(HMAP_OBJS)
+TEST_DEPS_test_bytering = $(BYTERING_OBJS)
+TEST_DEPS_DEFAULT =
+
+$(BINDIR)/%: $(TESTDIR)/%.c $(UNITY_LIB) | $(BINDIR)
+	$(CC) $(CFLAGS) $< $(TEST_DEPS_$(*F)) $(TEST_DEPS_DEFAULT) -o $@ $(UNITY_LIB) $(LDFLAGS)
 
 $(TEST_BLOCK_OBJ): $(TEST_BLOCK_SRC) | $(OBJDIR)
 	$(CC) $(CFLAGS) -c $< -o $@
@@ -130,21 +158,6 @@ $(TEST_BLOCK_OBJ): $(TEST_BLOCK_SRC) | $(OBJDIR)
 $(OBJDIR)/%.o: $(TESTDIR)/%.c | $(OBJDIR)
 	$(CC) $(CFLAGS) -c $< -o $@
 
-$(TEST_PERSISTENCE_BIN): $(TEST_PERSISTENCE_SRC) $(SERVER_LIB_OBJS) $(OBJDIR)/libs_block.o $(OBJDIR)/libs_block_item.o $(OBJDIR)/libs_index_block.o $(OBJDIR)/libs_hex_dump.o $(OBJDIR)/libs_scribe.o $(OBJDIR)/libs_stb_impl.o $(UNITY_LIB) | $(BINDIR)
-	$(CC) $(CFLAGS) $(filter-out $(UNITY_LIB),$^) -o $@ $(UNITY_LIB) $(LDFLAGS)
-
-test_hmap: $(OBJDIR)/test_hmap.o $(OBJDIR)/libs_hmap.o $(OBJDIR)/libs_lstr.o | $(BINDIR)
-	$(CC) $(CFLAGS) -o $(BINDIR)/test_hmap $^
-
-test_bytering: $(OBJDIR)/test_bytering.o $(OBJDIR)/libs_bytering.o | $(BINDIR)
-	$(CC) $(CFLAGS) -o $(BINDIR)/test_bytering $^
-
-# Test object files
-$(OBJDIR)/test_hmap.o: $(TESTDIR)/test_hmap.c | $(OBJDIR)
-	$(CC) $(CFLAGS) -c $< -o $@
-
-$(OBJDIR)/test_bytering.o: $(TESTDIR)/test_bytering.c | $(OBJDIR)
-	$(CC) $(CFLAGS) -c $< -o $@
 
 # Clean targets
 clean:
@@ -165,4 +178,4 @@ lib-hmap: $(OBJDIR)/libs_hmap.o
 lib-u_ptr_array: $(OBJDIR)/libs_u_ptr_array.o
 lib-scribe: $(OBJDIR)/libs_scribe.o
 
-.PHONY: all server-obj client tests test test-block test-persistence coverage compdb clean clean-all lib-u_array lib-skiplist_str lib-lstr lib-persistence3 lib-bytering lib-hmap_si lib-hmap lib-u_ptr_array lib-scribe
+.PHONY: all server-obj client tests test test-block test-persistence test-index-section test_hmap test_bytering coverage compdb clean clean-all lib-u_array lib-skiplist_str lib-lstr lib-persistence3 lib-bytering lib-hmap_si lib-hmap lib-u_ptr_array lib-scribe
