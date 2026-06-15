@@ -42,8 +42,10 @@
 #include "lstr.h"
 #include "scribe.h"
 #include "skiplist_str.h"
+#include "sst_file.h"
 #include "stb_ds.h"
 #include "u_array.h"
+#include <stdio.h>
 #include <ctype.h>
 #include <errno.h>
 #include <fcntl.h>
@@ -303,7 +305,7 @@ void deserialize_index(char *index, int len, Array *keys_out,
 FILE *sstable_open_file(SSTable *sst) {
   char *fp __attribute__((__cleanup__(cleanup_char_buf)));
   fp = lstring_to_cstr(sst->filepath);
-  FILE *fptr = fopen(fp, "r");
+  FILE *fptr = fopen(fp, "rb");
   return fptr;
 }
 
@@ -319,8 +321,31 @@ LString *search_in_sst_v2(SSTable sst, LString *key) {
     return NULL;
   }
 
-  struct stat st;
-  fstat(fileno(fptr), &st);
+  fseek(fptr, -(long)(sizeof(SSTFileFooter)), SEEK_END);
+
+  SSTFileContents sst_fc = {0};
+  fread(&sst_fc.footer, 1, sizeof(sst_fc.footer), fptr);
+  fseek(fptr, sst_fc.footer.index_offset, SEEK_SET);
+  char *index = malloc(sst_fc.footer.index_size);
+  fread(index, sst_fc.footer.index_size, 1, fptr);
+  u32 *index_restart_points =
+      (u32 *)&index[sst_fc.footer.index_offset -
+                    sst_fc.footer.index_restart_array_offset];
+  struct IndexItem *idx_item = IndexSection_search(
+      index, index_restart_points, sst_fc.footer.index_restart_array_size, key);
+  u32 block_start = idx_item->offset;
+
+  fseek(fptr, block_start, SEEK_SET);
+  u32 block_hdr[2];
+  fread(block_hdr, 1, sizeof(block_hdr), fptr);
+  u32 block_original_size = block_hdr[0];
+  u32 block_compressed_size = block_hdr[1];
+  fseek(fptr, sizeof(block_hdr), SEEK_CUR);
+  char *block = malloc(block_compressed_size);
+  fread(block, block_compressed_size, 1, fptr);
+  // steps:
+  // 1. decompress
+  // 2. deserialize the block
 }
 
 LString *search_in_sst(SSTable sst, LString *key) {

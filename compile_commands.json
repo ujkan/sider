@@ -1,5 +1,203 @@
 [
   {
+    "file": "src/libs/block_item_test.c",
+    "arguments": [
+      "/usr/bin/gcc",
+      "-I./include",
+      "-I./Unity-2.6.1/src",
+      "-I/Users/u.sulejmani/.local/include",
+      "-I/usr/include/glib-2.0",
+      "-I/usr/lib/x86_64-linux-gnu/glib-2.0/include",
+      "-I/opt/local/include",
+      "-Wall",
+      "-Wextra",
+      "-O0",
+      "-g",
+      "-c",
+      "src/libs/block_item_test.c",
+      "-o",
+      "obj/libs_block_item_test.o"
+    ],
+    "directory": "/Users/u.sulejmani/development/_personal/build-your-own-redis",
+    "output": "obj/libs_block_item_test.o"
+  },
+  {
+    "file": "src/libs/persistence.c",
+    "arguments": [
+      "/usr/bin/gcc",
+      "-I./include",
+      "-I./Unity-2.6.1/src",
+      "-I/Users/u.sulejmani/.local/include",
+      "-I/usr/include/glib-2.0",
+      "-I/usr/lib/x86_64-linux-gnu/glib-2.0/include",
+      "-I/opt/local/include",
+      "-Wall",
+      "-Wextra",
+      "-O0",
+      "-g",
+      "-c",
+      "src/libs/persistence.c",
+      "-o",
+      "obj/libs_persistence.o"
+    ],
+    "directory": "/Users/u.sulejmani/development/_personal/build-your-own-redis",
+    "output": "obj/libs_persistence.o"
+  },
+  {
+    "file": "src/libs/test_block.c",
+    "arguments": [
+      "/usr/bin/gcc",
+      "-I./include",
+      "-I./Unity-2.6.1/src",
+      "-I/Users/u.sulejmani/.local/include",
+      "-I/usr/include/glib-2.0",
+      "-I/usr/lib/x86_64-linux-gnu/glib-2.0/include",
+      "-I/opt/local/include",
+      "-Wall",
+      "-Wextra",
+      "-O0",
+      "-g",
+      "-c",
+      "src/libs/test_block.c",
+      "-o",
+      "obj/libs_test_block.o"
+    ],
+    "directory": "/Users/u.sulejmani/development/_personal/build-your-own-redis",
+    "output": "obj/libs_test_block.o"
+  },
+  {
+    "file": "src/libs/test_compress_and_write_v2.c",
+    "arguments": [
+      "/usr/bin/gcc",
+      "-I./include",
+      "-I./Unity-2.6.1/src",
+      "-I/Users/u.sulejmani/.local/include",
+      "-I/usr/include/glib-2.0",
+      "-I/usr/lib/x86_64-linux-gnu/glib-2.0/include",
+      "-I/opt/local/include",
+      "-Wall",
+      "-Wextra",
+      "-O0",
+      "-g",
+      "-c",
+      "src/libs/test_compress_and_write_v2.c",
+      "-o",
+      "obj/libs_test_compress_and_write_v2.o"
+    ],
+    "directory": "/Users/u.sulejmani/development/_personal/build-your-own-redis",
+    "output": "obj/libs_test_compress_and_write_v2.o"
+  },
+  {
+    "file": "tests/test_block.c",
+    "arguments": [
+      "/usr/bin/gcc",
+      "-I./include",
+      "-I./Unity-2.6.1/src",
+      "-I/Users/u.sulejmani/.local/include",
+      "-I/usr/include/glib-2.0",
+      "-I/usr/lib/x86_64-linux-gnu/glib-2.0/include",
+      "-I/opt/local/include",
+      "-Wall",
+      "-Wextra",
+      "-O0",
+      "-g",
+      "-c",
+      "tests/test_block.c",
+      "-o",
+      "obj/test_block.o"
+    ],
+    "directory": "/Users/u.sulejmani/development/_personal/build-your-own-redis",
+    "output": "obj/test_block.o"
+  },
+  {
+    "file": "tests/test_bytering.c",
+    "arguments": [
+      "/usr/bin/gcc",
+      "-I./include",
+      "-I./Unity-2.6.1/src",
+      "-I/Users/u.sulejmani/.local/include",
+      "-I/usr/include/glib-2.0",
+      "-I/usr/lib/x86_64-linux-gnu/glib-2.0/include",
+      "-I/opt/local/include",
+      "-Wall",
+      "-Wextra",
+      "-O0",
+      "-g",
+      "-c",
+      "tests/test_bytering.c",
+      "-o",
+      "obj/test_bytering.o"
+    ],
+    "directory": "/Users/u.sulejmani/development/_personal/build-your-own-redis",
+    "output": "obj/test_bytering.o"
+  },
+  {
+    "file": "tests/test_hmap.c",
+    "arguments": [
+      "/usr/bin/gcc",
+      "-I./include",
+      "-I./Unity-2.6.1/src",
+      "-I/Users/u.sulejmani/.local/include",
+      "-I/usr/include/glib-2.0",
+      "-I/usr/lib/x86_64-linux-gnu/glib-2.0/include",
+      "-I/opt/local/include",
+      "-Wall",
+      "-Wextra",
+      "-O0",
+      "-g",
+      "-c",
+      "tests/test_hmap.c",
+      "-o",
+      "obj/test_hmap.o"
+    ],
+    "directory": "/Users/u.sulejmani/development/_personal/build-your-own-redis",
+    "output": "obj/test_hmap.o"
+  },
+  {
+    "file": "tests/test_persistence.c",
+    "arguments": [
+      "/usr/bin/gcc",
+      "-I./include",
+      "-I./Unity-2.6.1/src",
+      "-I/Users/u.sulejmani/.local/include",
+      "-I/usr/include/glib-2.0",
+      "-I/usr/lib/x86_64-linux-gnu/glib-2.0/include",
+      "-I/opt/local/include",
+      "-Wall",
+      "-Wextra",
+      "-O0",
+      "-g",
+      "-c",
+      "tests/test_persistence.c",
+      "-o",
+      "obj/test_persistence.o"
+    ],
+    "directory": "/Users/u.sulejmani/development/_personal/build-your-own-redis",
+    "output": "obj/test_persistence.o"
+  },
+  {
+    "file": "tests/utils.c",
+    "arguments": [
+      "/usr/bin/gcc",
+      "-I./include",
+      "-I./Unity-2.6.1/src",
+      "-I/Users/u.sulejmani/.local/include",
+      "-I/usr/include/glib-2.0",
+      "-I/usr/lib/x86_64-linux-gnu/glib-2.0/include",
+      "-I/opt/local/include",
+      "-Wall",
+      "-Wextra",
+      "-O0",
+      "-g",
+      "-c",
+      "tests/utils.c",
+      "-o",
+      "obj/utils.o"
+    ],
+    "directory": "/Users/u.sulejmani/development/_personal/build-your-own-redis",
+    "output": "obj/utils.o"
+  },
+  {
     "file": "src/server.c",
     "arguments": [
       "/usr/bin/gcc",

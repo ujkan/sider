@@ -11,6 +11,36 @@
 void setUp(void) {}
 void tearDown(void) {}
 
+#define U16_LE(n) (u8)((n) & 0xff), (u8)(((n) >> 8) & 0xff)
+#define U32_LE(n)                                                              \
+  (u8)((n) & 0xff), (u8)(((n) >> 8) & 0xff), (u8)(((n) >> 16) & 0xff),         \
+      (u8)(((n) >> 24) & 0xff)
+
+// clang-format off
+static const u8 kSampleDataBlockRaw[] = {
+    // item 0: shared=0, suffix_len=8, suffix="prefix/a", value_len=5,
+    // value="value"
+    U16_LE(0), U16_LE(8), 'p', 'r', 'e', 'f', 'i', 'x', '/', 'a', U16_LE(5),
+    'v', 'a', 'l', 'u', 'e',
+
+    // item 1: shared=7, suffix_len=1, suffix="b", value_len=5,
+    // value="value"
+    U16_LE(7), U16_LE(1), 'b', U16_LE(5), 'v', 'a', 'l', 'u', 'e',
+
+    U32_LE(0),
+
+    // footer: restart_points_len=1
+    U32_LE(1),
+};
+// clang-format on
+
+static u8 *make_sample_data_block_raw(u32 *len_out) {
+  *len_out = sizeof(kSampleDataBlockRaw);
+  u8 *copy = malloc(*len_out);
+  memcpy(copy, kSampleDataBlockRaw, *len_out);
+  return copy;
+}
+
 static void test_append_entry_computes_shared_prefix(void) {
   struct DataBlock block;
   DataBlock_init(&block);
@@ -77,11 +107,8 @@ static void test_RestartPoint_serialize_into(void) {
   u8 *cursor = buf;
   RestartPoint_serialize_into(&rp, &cursor);
 
-  TEST_ASSERT_EQUAL_UINT16(9, cursor - buf);
-  TEST_ASSERT_EQUAL_MEMORY("\x03\x00"
-                           "abc",
-                           buf, 5);
-  TEST_ASSERT_EQUAL_MEMORY(&rp.offset, buf + 5, sizeof(rp.offset));
+  TEST_ASSERT_EQUAL_UINT16(4, cursor - buf);
+  TEST_ASSERT_EQUAL_MEMORY(&rp.offset, buf, sizeof(rp.offset));
 
   free(buf);
 }
@@ -137,10 +164,10 @@ static void test_DataBlock_serialize_into(void) {
                            buf + 12 + 7, 5);
   TEST_ASSERT_EQUAL_MEMORY("\x05\x00value", buf + 12 + 7 + 5, 7);
   // one restart point only, and that is "prefix/a -> 0"
-  TEST_ASSERT_EQUAL_MEMORY("\x08\x00"
-                           "prefix/a",
-                           buf + 12 + 7 + 5 + 7, 10);
-  TEST_ASSERT_EQUAL_MEMORY("\x00\x00\x00\x00", buf + 12 + 7 + 5 + 7 + 10, 4);
+  // restart_point[0] == 0
+  TEST_ASSERT_EQUAL_MEMORY("\x00\x00\x00\x00", buf + 12 + 7 + 5 + 7, 4);
+  // footer, #restart_points == 1
+  TEST_ASSERT_EQUAL_MEMORY("\x01\x00\x00\x00", buf + 12 + 7 + 5 + 7 + 4, 4);
 
   DataBlock_destroy(&block);
   free(prev);
@@ -148,7 +175,6 @@ static void test_DataBlock_serialize_into(void) {
   free(value);
   free(buf);
 }
-
 
 static void test_DataBlock_append_many(void) {
   struct DataBlock block;
@@ -184,13 +210,35 @@ static void test_DataBlock_append_many(void) {
     snprintf(b, sizeof(b), "%01d", i);
     TEST_ASSERT_EQUAL_MEMORY(b, (s->data + 20) + (ptrdiff_t)((i - 1) * 11), 1);
   }
-    DataBlock_destroy(&block);
-    lstring_free(s);
-    for (int i = 0; i < 64; i++) {
-        struct SSTPair pair = array_index(pairs, struct SSTPair, i);
-        free(pair.key.data);
-        free(pair.value.data);
-    }
+  DataBlock_destroy(&block);
+  lstring_free(s);
+  for (int i = 0; i < 64; i++) {
+    struct SSTPair pair = array_index(pairs, struct SSTPair, i);
+    free(pair.key.data);
+    free(pair.value.data);
+  }
+}
+
+void test_DataBlock_deserialize() {
+  struct DataBlock *block =
+      DataBlock_deserialize(kSampleDataBlockRaw, sizeof(kSampleDataBlockRaw));
+  TEST_ASSERT_EQUAL_INT(1, arrlen(block->restart_points));
+  TEST_ASSERT_EQUAL_INT(2, arrlen(block->items));
+
+  TEST_ASSERT_EQUAL_UINT16(0, block->items[0].shared);
+  TEST_ASSERT_EQUAL_UINT16(8, block->items[0].suffix_len);
+  TEST_ASSERT_EQUAL_MEMORY("prefix/a", block->items[0].suffix, 8);
+  TEST_ASSERT_EQUAL_UINT16(5, block->items[0].value_len);
+  TEST_ASSERT_EQUAL_MEMORY("value", block->items[0].value, 5);
+
+  TEST_ASSERT_EQUAL_UINT16(7, block->items[1].shared);
+  TEST_ASSERT_EQUAL_UINT16(1, block->items[1].suffix_len);
+  TEST_ASSERT_EQUAL_MEMORY("b", block->items[1].suffix, 1);
+  TEST_ASSERT_EQUAL_UINT16(5, block->items[1].value_len);
+  TEST_ASSERT_EQUAL_MEMORY("value", block->items[1].value, 5);
+
+  TEST_ASSERT_EQUAL_INT(1, arrlen(block->restart_points));
+  TEST_ASSERT_EQUAL_MEMORY("prefix/a", block->restart_points[0].key.data, 8);
 }
 
 int main(void) {
@@ -201,5 +249,6 @@ int main(void) {
   RUN_TEST(test_BlockItem_serialize_into);
   RUN_TEST(test_DataBlock_serialize_into);
   RUN_TEST(test_DataBlock_append_many);
+  RUN_TEST(test_DataBlock_deserialize);
   return UNITY_END();
 }

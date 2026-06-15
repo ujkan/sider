@@ -7,6 +7,8 @@
 #include <stddef.h>
 
 
+static const u32 kRestartPointInterval = 32;
+
 struct RestartPoint {
   LString key; // contains shared ref (u8 *data) to BlockItem's suffix
   u32 offset;
@@ -26,6 +28,7 @@ struct DataSection {
 
 void DataBlock_init(struct DataBlock *block);
 void DataBlock_destroy(struct DataBlock *block);
+struct DataBlock * DataBlock_deserialize(u8 *data, u32 size);
 void DataBlock_serialize_into(struct DataBlock *block, u8 **buf);
 LString *DataBlock_serialize(struct DataBlock *block);
 LString *DataSection_compress(struct DataSection *block);
@@ -39,6 +42,7 @@ void DataBlock_compressed_serialize_into(struct DataBlock *block, u8 **buf);
 LString *RestartPoint_serialize(struct RestartPoint *rp);
 void RestartPoint_serialize_into(struct RestartPoint *rp, u8 **buf);
 struct DataBlock* DataSection_add_new_block(struct DataSection *section);
+struct DataBlock *DataBlock_deserialize(u8 *data, u32 size);
 
 void DataSection_destroy(struct DataSection *section);
 

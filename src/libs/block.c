@@ -16,6 +16,8 @@ void DataBlock_init(struct DataBlock *block) {
 }
 
 void DataBlock_compressed_serialize_into(struct DataBlock *block, u8 **buf) {
+  // TODO: need to add a ptr/offset to the restart points for faster searching
+  // or maybe not since we anyway need to deser entire block !!
   size_t original_size = block->items_size_bytes;
   scribe_put_u32(buf, original_size);
   scribe_put_u32(buf, original_size);
@@ -53,8 +55,9 @@ void RestartPoint_serialize_into(struct RestartPoint *rp, u8 **buf) {
   //     -
   //                                       // 4 this will overflow
   u8 *dataptr = *buf;
-  scribe_put_u16(&dataptr, rp->key.len);
-  scribe_put_bytes(&dataptr, rp->key.data, rp->key.len);
+  // NOTE: only offset is serialized!
+  // scribe_put_u16(&dataptr, rp->key.len);
+  // scribe_put_bytes(&dataptr, rp->key.data, rp->key.len);
   scribe_put_u32(&dataptr, rp->offset);
   *buf = dataptr;
 }
@@ -82,6 +85,8 @@ void DataBlock_serialize_into(struct DataBlock *block, u8 **buf) {
   for (int i = 0; i < arrlen(block->restart_points); i++) {
     RestartPoint_serialize_into(&block->restart_points[i], buf);
   }
+  // footer
+  scribe_put_u32(buf, arrlen(block->restart_points));
 }
 
 LString *DataBlock_compress(struct DataBlock *block, size_t *original_size) {
@@ -136,7 +141,7 @@ LString *DataSection_compress(struct DataSection *section) {
 
 void DataBlock_append_item(struct DataBlock *block, struct BlockItem *item) {
   int len = arrlen(block->items);
-  if (len % 32 == 0) {
+  if (len % kRestartPointInterval == 0) {
     // restart point
     struct RestartPoint rp;
     rp.key.data = item->suffix;
@@ -186,4 +191,62 @@ void DataSection_destroy(struct DataSection *section) {
     DataBlock_destroy(&section->blocks[i]);
   }
   arrfree(section->blocks);
+}
+
+struct DataBlock *DataBlock_deserialize(u8 *data, u32 size) {
+  struct DataBlock *block = malloc(sizeof(struct DataBlock));
+  DataBlock_init(block);
+  u8 *data_end = data + size;
+  const u8 *restart_points_len_ptr = data_end - sizeof(u32);
+  u32 restart_points_len;
+  memcpy(&restart_points_len, restart_points_len_ptr, sizeof(u32));
+  u8 *restart_points_ptr =
+      (data_end - sizeof(u32)) - (restart_points_len * sizeof(u32));
+  const u8 *cursor = data;
+  printf("data_ptr = %p\n", data);
+  printf("data_end = %p\n", data_end);
+  printf("restart_points_ptr = %p\n", restart_points_ptr);
+  printf("restart_points_len_ptr = %p\n", restart_points_len_ptr);
+  printf("restart_points_len = %d\n", restart_points_len);
+  int i = 1;
+  while (cursor < restart_points_ptr) {
+    // TODO: add a deserialize block item method
+    printf("iter [%d] cu=%p rp=%p\n", i, cursor, restart_points_ptr);
+    i++;
+    struct BlockItem item = {0};
+    item.shared = scribe_get_u16(&cursor);
+    item.suffix_len = scribe_get_u16(&cursor);
+    // NOTE: if we use scribe_get_bytes, we have to do
+    // item.suffix = malloc(suffix_len)
+    // same holds for item.value
+    // that means that at the end we must free decompressed
+    // but my logic is, if we already have that data in a nice, linear block of
+    // memory why free it? Then our suffix strings would be spread out with this
+    // malloc but decompressed has them already packed nice
+    // of course we must be very careful; when at the end we may need to free
+    // something we need to keep the original `decompressed` pointer somewhere!
+    // because only that can be freed so the suffix and value here are VIEWS of
+    // the decompressed buffer
+    item.suffix = cursor;
+    cursor += item.suffix_len;
+    item.value_len = scribe_get_u16(&cursor);
+    item.value = cursor;
+    cursor += item.value_len;
+    arrpush(block->items, item);
+  }
+  for (int i = 0; i < restart_points_len; i++) {
+    struct RestartPoint rp = {0};
+    rp.offset = scribe_get_u32(&cursor);
+    rp.key.len = block->items[i * kRestartPointInterval].suffix_len;
+    rp.key.data = block->items[i * kRestartPointInterval].suffix;
+    arrpush(block->restart_points, rp);
+  }
+  return block;
+}
+
+struct DataBlock *DataBlock_compressed_deserialize(u8 *data, u32 original_size,
+                                                   u32 compressed_size) {
+  char *decompressed = malloc(original_size);
+  LZ4_decompress_safe(data, decompressed, compressed_size, original_size);
+  return DataBlock_deserialize(decompressed, original_size);
 }
