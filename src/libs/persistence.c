@@ -45,7 +45,6 @@
 #include "sst_file.h"
 #include "stb_ds.h"
 #include "u_array.h"
-#include <stdio.h>
 #include <ctype.h>
 #include <errno.h>
 #include <fcntl.h>
@@ -346,6 +345,11 @@ LString *search_in_sst_v2(SSTable sst, LString *key) {
   // steps:
   // 1. decompress
   // 2. deserialize the block
+  struct DataBlock *data_block = DataBlock_compressed_deserialize(
+      block, block_original_size, block_compressed_size);
+  LString *value = malloc(sizeof(LString));
+  DataBlock_get(data_block, key, value);
+  return value;
 }
 
 LString *search_in_sst(SSTable sst, LString *key) {

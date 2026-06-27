@@ -13,4 +13,5 @@ LString *lstring_create_from_buf(int size, const char *buf);
 char *lstring_to_cstr(LString *s);
 i32 lstring_compare(const LString *a, const LString *b);
 LString *lstring_deserialize(const u8 **buf);
-
+void lstring_realloc(LString *s, u16 new_size);
+void lstring_print(LString *s);

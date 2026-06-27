@@ -5,7 +5,9 @@
 #include "scribe.h"
 #include "stb_ds.h"
 #include <lz4.h>
+#include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
 
 void DataBlock_init(struct DataBlock *block) {
   block->items = NULL;
@@ -250,3 +252,109 @@ struct DataBlock *DataBlock_compressed_deserialize(u8 *data, u32 original_size,
   LZ4_decompress_safe(data, decompressed, compressed_size, original_size);
   return DataBlock_deserialize(decompressed, original_size);
 }
+
+int lstring_cmp_prefix_suffix(LString *prefix, LString *suffix,
+                              LString *other) {
+  if (other->len < prefix->len) {
+    return -1;
+  }
+  for (int i = 0; i < prefix->len; i++) {
+    if (prefix->data[i] != other->data[i]) {
+      return -1;
+    }
+  }
+  if (other->len - prefix->len != suffix->len) {
+    return -1;
+  }
+  for (int i = 0; i < suffix->len; i++) {
+    if (suffix->data[i] != other->data[i + prefix->len]) {
+      return -1;
+    }
+  }
+  return 0;
+}
+
+int DataBlock_get(struct DataBlock *block, LString *key,
+                  LString *return_value) {
+  int start = 0;
+  int end = arrlen(block->restart_points) - 1;
+  int mid = (start + end) / 2;
+  printf("s=%d m=%d e=%d\n", start, mid, end);
+  while (start <= end) {
+    printf("s=%d m=%d e=%d\n", start, mid, end);
+    printf("rp[mid]=%s\n", block->restart_points[mid].key.data);
+    int cmp = lstring_compare(&block->restart_points[mid].key, key);
+    printf("cmp=%d\n", cmp);
+    if (cmp == 0) {
+      return_value->data = block->items[mid].value;
+      return_value->len = block->items[mid].value_len;
+      return 1;
+    } else if (cmp < 0) {
+      start = mid + 1;
+    } else {
+      end = mid - 1;
+    }
+    mid = (start + end) / 2;
+    printf("_s=%d m=%d e=%d\n", start, mid, end);
+  }
+
+  // search from mid to mid+1 restart points, that's kRestartPointInterval
+  // entries you must remember the prefix too because block->items stores
+  // .suffix only
+  int s = mid * kRestartPointInterval;
+  LString *prev = lstring_create(4);
+
+  printf("starting_mid=%d\n", mid);
+  for (int i = 0; i < kRestartPointInterval; i++) {
+    struct BlockItem bi = block->items[s + i];
+    LString *suffix = lstring_create(bi.suffix_len);
+    suffix->data = bi.suffix;
+    // this is bad but avoids allocating
+    // idea is prefix.data points to potentially longer string
+    // but we take a slice/view of length bi.shared !
+    // we are treating this string as a StringView but we don't have
+    // string view semantics! must not ever free prefix.data; we do not own
+    LString prefix = {0};
+    prefix.data = prev->data;
+    prefix.len = bi.shared;
+    int cmp = lstring_cmp_prefix_suffix(&prefix, suffix, key);
+    printf("prefix=");
+    lstring_print(&prefix);
+    printf(" suffix=");
+    lstring_print(suffix);
+    printf(" key=");
+    lstring_print(key);
+    printf(" cmp=%d", cmp);
+    printf("\n");
+    if (cmp == 0) {
+      return_value->data = block->items[s + i].value;
+      return_value->len = block->items[s + i].value_len;
+      return 1;
+    }
+
+    if (bi.shared + bi.suffix_len > prev->len) {
+      lstring_realloc(prev, bi.shared + bi.suffix_len);
+    }
+    // prev = prev[:curr.shared] + curr.suffix
+    memcpy(&prev->data[bi.shared], suffix->data, suffix->len);
+
+    // we also need to update the prefix somehow?
+    //
+    //
+    //
+    // 0 europe/ber europe/ber
+    // 8 muc        europe/muc
+    // 3 asia       eurasia
+    // in each step, after you do whatever, you say
+    // prev = prev[:curr.shared] + curr.suffix
+  }
+
+  return -mid;
+}
+
+//
+// 0 1 2 3 4 5 6 7 8
+// s       m       e
+// s m   e
+//     s e
+//     m e

@@ -1,4 +1,5 @@
 #include "block.h"
+#include "lstr.h"
 #include "stb_ds.h"
 #include "u_array.h"
 #include "unity.h"
@@ -241,6 +242,24 @@ void test_DataBlock_deserialize() {
   TEST_ASSERT_EQUAL_MEMORY("prefix/a", block->restart_points[0].key.data, 8);
 }
 
+void test_DataBlock_get() {
+  struct DataBlock block;
+  DataBlock_init(&block);
+  struct SSTPair prev = {0};
+  Array *pairs = test_utils_generate_kv_pairs(64);
+  for (int i = 0; i < 64; i++) {
+    struct SSTPair pair = array_index(pairs, struct SSTPair, i);
+    // printf("%s\n", pair.key.data);
+    DataBlock_append_entry(&block, &pair.key, &pair.value, &prev.key);
+    prev = pair;
+  }
+    printf("arrlen(rps)=%d\n", arrlen(block.restart_points));
+  LString *search_key = lstring_create_from_buf(6, "key031");
+  LString *ret = lstring_create(0);
+  int rv = DataBlock_get(&block, search_key, ret);
+  TEST_ASSERT_EQUAL_INT(1, rv);
+}
+
 int main(void) {
   UNITY_BEGIN();
   RUN_TEST(test_append_entry_computes_shared_prefix);
@@ -250,5 +269,6 @@ int main(void) {
   RUN_TEST(test_DataBlock_serialize_into);
   RUN_TEST(test_DataBlock_append_many);
   RUN_TEST(test_DataBlock_deserialize);
+  RUN_TEST(test_DataBlock_get);
   return UNITY_END();
 }

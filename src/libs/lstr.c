@@ -1,5 +1,6 @@
 #include "lstr.h"
 #include "scribe.h"
+#include <assert.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -56,3 +57,11 @@ i32 lstring_compare(const LString *a, const LString *b) {
 
   return 0;
 }
+
+void lstring_realloc(LString *s, u16 new_size) {
+  u8 *new_data = realloc(s->data, new_size);
+  assert(new_data);
+  s->data = new_data;
+}
+
+void lstring_print(LString *s) { printf("%.*s", (int)s->len, s->data); }

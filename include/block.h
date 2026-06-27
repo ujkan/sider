@@ -43,6 +43,8 @@ LString *RestartPoint_serialize(struct RestartPoint *rp);
 void RestartPoint_serialize_into(struct RestartPoint *rp, u8 **buf);
 struct DataBlock* DataSection_add_new_block(struct DataSection *section);
 struct DataBlock *DataBlock_deserialize(u8 *data, u32 size);
+struct DataBlock *DataBlock_compressed_deserialize(u8 *data, u32 original_size, u32 compressed_size);
+int DataBlock_get(struct DataBlock *block, LString *key, LString *return_value);
 
 void DataSection_destroy(struct DataSection *section);
 
