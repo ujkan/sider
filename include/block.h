@@ -7,20 +7,21 @@
 #include <stddef.h>
 
 
-static const u32 kRestartPointInterval = 32;
+static const u32 kDataRestartPointInterval = 16;
+static const u32 kIndexRestartPointInterval = 1;
 
 struct RestartPoint {
   LString key; // contains shared ref (u8 *data) to BlockItem's suffix
   u32 offset;
 };
 
-struct DataBlock {
+typedef struct DataBlock {
   struct BlockItem *items; // type BlockItem
   struct RestartPoint *restart_points; // type RestartPoint
   int checksum;
   u32 items_size_bytes;
   // other metadata
-};
+} DataBlock;
 
 struct DataSection {
     struct DataBlock *blocks;
@@ -44,7 +45,7 @@ void RestartPoint_serialize_into(struct RestartPoint *rp, u8 **buf);
 struct DataBlock* DataSection_add_new_block(struct DataSection *section);
 struct DataBlock *DataBlock_deserialize(u8 *data, u32 size);
 struct DataBlock *DataBlock_compressed_deserialize(u8 *data, u32 original_size, u32 compressed_size);
-int DataBlock_get(struct DataBlock *block, LString *key, LString *return_value);
+int DataBlock_get(struct DataBlock *block, LString *key, LString **return_value);
 
 void DataSection_destroy(struct DataSection *section);
 

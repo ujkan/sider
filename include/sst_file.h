@@ -8,8 +8,8 @@
 typedef struct {
     u32 index_offset;
     u32 index_size;
-    u32 index_restart_array_offset;
-    u32 index_restart_array_size;
+    u32 index_restart_array_offset; // relative to index start
+    u32 index_restart_array_num_elements;
 } SSTFileFooter;
 #pragma pack(pop)
 

@@ -15,7 +15,6 @@
 #include <pthread.h>
 
 #include "bytering.h"
-#include "hmap.h"
 #include "lstr.h"
 #include "persistence.h"
 #include "scribe.h"
@@ -68,7 +67,6 @@ static u32 k_max_args = 3;
 static u32 k_max_key_len = 2 << 8;
 static u32 k_max_value_len = 2 << 14;
 static u32 kMemtableLimit = 1 * 64;
-static struct hashmap *data;
 static Store *store;
 
 int count_sst_files() {
@@ -330,7 +328,10 @@ void handle_command(struct Command *cmd, struct Response *out) {
           out->status = 0;
           memcpy(out->data, value->data, value->len);
           out->data_len = value->len;
-          lstring_free(value);
+          // NASTY! do not lstring_free value
+          // the data ptr it owns is a SLICE into a bigger buffer and cannot
+          // be freed. only free value
+          free(value);
           return;
         }
       }
@@ -395,7 +396,7 @@ bool try_one_request(struct Conn *conn) {
   }
   u32 msg_len;
   const u8 *src = conn->incoming->data;
-  msg_len = scribe_get_u32(&src);
+  msg_len = ntohl(scribe_get_u32(&src));
   if (msg_len > k_max_len) {
     msg("max len exceeded");
     byte_ring_pop_first_n(conn->incoming, 4);
@@ -508,7 +509,6 @@ void *dump_memtable_to_sstable(void *arg) {
     }
 
     sl_s_destroy(mt);
-    free(mt);
   }
 
   return NULL;
@@ -558,9 +558,6 @@ int main(void) {
   Array *pollfds = array_sized_new(10, sizeof(struct pollfd));
   struct pollfd l_pollfd = {fd, POLLIN, 0};
   array_push(pollfds, &l_pollfd);
-
-  data = malloc(sizeof(hashmap));
-  hashmap_init(data, 128);
 
   for (;;) {
     // TODO: 2 things need to be fixed

@@ -21,14 +21,14 @@ void DataBlock_compressed_serialize_into(struct DataBlock *block, u8 **buf) {
   // TODO: need to add a ptr/offset to the restart points for faster searching
   // or maybe not since we anyway need to deser entire block !!
   size_t original_size = block->items_size_bytes;
-  scribe_put_u32(buf, original_size);
-  scribe_put_u32(buf, original_size);
-  DataBlock_serialize_into(block, buf);
-  // LString *compressed_block = DataBlock_compress(block, &original_size);
   // scribe_put_u32(buf, original_size);
-  // scribe_put_u32(buf, compressed_block->len);
-  // scribe_put_bytes(buf, compressed_block->data, compressed_block->len);
-  // lstring_free(compressed_block);
+  // scribe_put_u32(buf, original_size);
+  // DataBlock_serialize_into(block, buf);
+  LString *compressed_block = DataBlock_compress(block, &original_size);
+  scribe_put_u32(buf, original_size);
+  scribe_put_u32(buf, compressed_block->len);
+  scribe_put_bytes(buf, compressed_block->data, compressed_block->len);
+  lstring_free(compressed_block);
 }
 
 void DataBlock_destroy(struct DataBlock *block) {
@@ -109,6 +109,7 @@ LString *DataBlock_compress(struct DataBlock *block, size_t *original_size) {
   *original_size = written;
   c->data = compressed;
   c->len = size;
+  free(buf);
   return c;
 }
 
@@ -143,7 +144,7 @@ LString *DataSection_compress(struct DataSection *section) {
 
 void DataBlock_append_item(struct DataBlock *block, struct BlockItem *item) {
   int len = arrlen(block->items);
-  if (len % kRestartPointInterval == 0) {
+  if (len % kDataRestartPointInterval == 0) {
     // restart point
     struct RestartPoint rp;
     rp.key.data = item->suffix;
@@ -239,8 +240,8 @@ struct DataBlock *DataBlock_deserialize(u8 *data, u32 size) {
   for (int i = 0; i < restart_points_len; i++) {
     struct RestartPoint rp = {0};
     rp.offset = scribe_get_u32(&cursor);
-    rp.key.len = block->items[i * kRestartPointInterval].suffix_len;
-    rp.key.data = block->items[i * kRestartPointInterval].suffix;
+    rp.key.len = block->items[i * kDataRestartPointInterval].suffix_len;
+    rp.key.data = block->items[i * kDataRestartPointInterval].suffix;
     arrpush(block->restart_points, rp);
   }
   return block;
@@ -275,37 +276,34 @@ int lstring_cmp_prefix_suffix(LString *prefix, LString *suffix,
 }
 
 int DataBlock_get(struct DataBlock *block, LString *key,
-                  LString *return_value) {
+                  LString **return_value) {
   int start = 0;
   int end = arrlen(block->restart_points) - 1;
-  int mid = (start + end) / 2;
-  printf("s=%d m=%d e=%d\n", start, mid, end);
+  int mid = start + (end - start) / 2;
   while (start <= end) {
-    printf("s=%d m=%d e=%d\n", start, mid, end);
-    printf("rp[mid]=%s\n", block->restart_points[mid].key.data);
+    mid = start + (end - start) / 2;
     int cmp = lstring_compare(&block->restart_points[mid].key, key);
-    printf("cmp=%d\n", cmp);
     if (cmp == 0) {
-      return_value->data = block->items[mid].value;
-      return_value->len = block->items[mid].value_len;
+      *return_value = malloc(sizeof(LString));
+      (*return_value)->data = block->items[mid].value;
+      (*return_value)->len = block->items[mid].value_len;
       return 1;
     } else if (cmp < 0) {
       start = mid + 1;
     } else {
       end = mid - 1;
     }
-    mid = (start + end) / 2;
-    printf("_s=%d m=%d e=%d\n", start, mid, end);
   }
 
   // search from mid to mid+1 restart points, that's kRestartPointInterval
   // entries you must remember the prefix too because block->items stores
   // .suffix only
-  int s = mid * kRestartPointInterval;
+  if (end < 0)
+    return 0;
+  int s = end * kDataRestartPointInterval;
   LString *prev = lstring_create(4);
 
-  printf("starting_mid=%d\n", mid);
-  for (int i = 0; i < kRestartPointInterval; i++) {
+  for (int i = 0; i < kDataRestartPointInterval; i++) {
     struct BlockItem bi = block->items[s + i];
     LString *suffix = lstring_create(bi.suffix_len);
     suffix->data = bi.suffix;
@@ -327,8 +325,9 @@ int DataBlock_get(struct DataBlock *block, LString *key,
     printf(" cmp=%d", cmp);
     printf("\n");
     if (cmp == 0) {
-      return_value->data = block->items[s + i].value;
-      return_value->len = block->items[s + i].value_len;
+      *return_value = malloc(sizeof(LString));
+      (*return_value)->data = block->items[s + i].value;
+      (*return_value)->len = block->items[s + i].value_len;
       return 1;
     }
 
@@ -349,7 +348,7 @@ int DataBlock_get(struct DataBlock *block, LString *key,
     // prev = prev[:curr.shared] + curr.suffix
   }
 
-  return -mid;
+  return -(end);
 }
 
 //

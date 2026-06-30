@@ -253,11 +253,11 @@ void test_DataBlock_get() {
     DataBlock_append_entry(&block, &pair.key, &pair.value, &prev.key);
     prev = pair;
   }
-    printf("arrlen(rps)=%d\n", arrlen(block.restart_points));
-  LString *search_key = lstring_create_from_buf(6, "key031");
+  LString *search_key = lstring_create_from_buf(6, "key033");
   LString *ret = lstring_create(0);
   int rv = DataBlock_get(&block, search_key, ret);
   TEST_ASSERT_EQUAL_INT(1, rv);
+
 }
 
 int main(void) {

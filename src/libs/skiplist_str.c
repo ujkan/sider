@@ -1,10 +1,10 @@
 #include "skiplist_str.h"
+#include "index_block.h"
 #include "lstr.h"
+#include "stb_ds.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <time.h>
-
-const int kLStringLenSize = 2;
 
 void pretty_print_skiplist(struct SkipList *list) {
   if (!list || !list->head) {
@@ -215,15 +215,17 @@ i32 sl_s_get_data(SkipList *sl, LString ***keys_out, LString ***values_out,
   }
   //   printf("OUT_)COUNT=%d\n", *out_count);
 
-  *keys_out = calloc(*out_count, sizeof(LString *));
-  *values_out = calloc(*out_count, sizeof(u32 *));
+  arrsetcap(*keys_out, *out_count);
+  arrsetcap(*values_out, *out_count);
 
   curr = sl->head->next[0];
   int i = 0;
   while (curr) {
-    (*keys_out)[i] = curr->key;
+    // (*keys_out)[i] = curr->key;
+    arrpush(*keys_out, curr->key);
     //     printf("curr->data->len %d\n", curr->key->len);
-    (*values_out)[i] = curr->value;
+    // (*values_out)[i] = curr->value;
+    arrpush(*values_out, curr->value);
     curr = curr->next[0];
     i++;
   }

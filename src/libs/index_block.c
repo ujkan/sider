@@ -16,14 +16,25 @@ LString *IndexItem_serialize(struct IndexItem *iitem) {
   serialized->data = data;
   return serialized;
 }
-LString *IndexSection_serialize(struct IndexSection *iblock) {
+LString *IndexSection_serialize(struct IndexSection *iblock, u32* restart_point_offset) {
   // TODO: add restart points
   u8 *buf = malloc(1024 * 1024);
   u8 *bufptr = buf;
+  u32 *restart_points = NULL;
+  arrsetcap(restart_points, arrlen(iblock->items));
+  u32 offset_sum = 0;
+
+  // TODO: use arena instead of malloc-ing each item
   for (int i = 0; i < arrlen(iblock->items); i++) {
     LString *serialized = IndexItem_serialize(&iblock->items[i]);
     scribe_put_bytes(&bufptr, serialized->data, serialized->len);
+    arrpush(restart_points, offset_sum);
+    offset_sum += serialized->len;
     lstring_free(serialized);
+  }
+  *restart_point_offset = bufptr - buf;
+  for (int i = 0; i < arrlen(iblock->items); i++) {
+    scribe_put_u32(&bufptr, restart_points[i]);
   }
   LString *serialized = malloc(sizeof(LString));
   serialized->len = bufptr - buf;
@@ -74,5 +85,14 @@ struct IndexItem *IndexSection_search(char *index_section,
       end = mid - 1;
     }
   }
+  if (end < 0) {
+    return NULL;
+  }
+  // Question:
+  //
+  // should index contain key smaller than block_0[0]
+  // and one key greater than block_last[-1]
+  //  1 2 3 4 5 6
+  // ^ ^ ^ ^ ^ ^ ^
   return item;
 }

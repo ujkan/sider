@@ -144,10 +144,10 @@ u32 KeyOffsetPair_serialize(struct KeyOffsetPair *pair, FILE *cursor) {
 
 void compress_and_write(LString **keys, LString **values, char *write_buf,
                         int *written_len) {
-  if (arrlen(keys) == 0 || arrlen(values) == 0) {
-    *written_len = 0;
-    return;
-  }
+  // if (arrlen(keys) == 0 || arrlen(values) == 0) {
+  //   *written_len = 0;
+  //   return;
+  // }
   LString *curr_key = keys[0];
   LString *curr_value = values[0];
   struct DataSection d_section = {0};
@@ -163,7 +163,8 @@ void compress_and_write(LString **keys, LString **values, char *write_buf,
   arrpush(i_section.items, curr_index_item);
 
   u8 *cursor = (u8 *)write_buf;
-  for (u32 j = 1; j < arrlen(keys); j++) {
+  u32 num_items = arrlen(keys);
+  for (u32 j = 1; j < num_items; j++) {
     curr_key = keys[j];
     curr_value = values[j];
     prev_key = keys[j - 1];
@@ -177,13 +178,24 @@ void compress_and_write(LString **keys, LString **values, char *write_buf,
     DataBlock_append_entry(curr_block, curr_key, curr_value, prev_key);
   }
   DataBlock_compressed_serialize_into(curr_block, &cursor);
-  LString *index_block_serialized = IndexSection_serialize(&i_section);
+  u32 index_offset = cursor - ((u8 *)write_buf);
+  u32 index_restart_array_offset;
+  LString *index_block_serialized =
+      IndexSection_serialize(&i_section, &index_restart_array_offset);
   scribe_put_bytes(&cursor, index_block_serialized->data,
                    index_block_serialized->len);
-  *written_len = (cursor - (u8 *)write_buf);
+  // TODO: add footer!!
+  SSTFileFooter footer;
+  footer.index_size = index_block_serialized->len;
+  footer.index_restart_array_offset = index_restart_array_offset;
+  footer.index_offset = index_offset;
+  footer.index_restart_array_num_elements =
+      arrlen(i_section.items) / kIndexRestartPointInterval;
+  scribe_put_bytes(&cursor, &footer, sizeof(SSTFileFooter));
   DataSection_destroy(&d_section);
   lstring_free(index_block_serialized);
   arrfree(i_section.items);
+  *written_len = (cursor - (u8 *)write_buf);
 }
 
 SSTable *dump_memtable_to_sst(SkipList *mt, LString *filepath) {
@@ -215,6 +227,7 @@ SSTable *dump_memtable_to_sst(SkipList *mt, LString *filepath) {
 
   int written_len;
   compress_and_write(keys, values, map, &written_len);
+  hex_dump(map, written_len);
   if (ftruncate(fd, written_len) == -1) {
     perror("ftruncate failed");
     goto cleanup;
@@ -230,8 +243,8 @@ cleanup:
   free(sst);
   if (fp)
     free(fp);
-  free((void *)keys);
-  free((void *)values);
+  arrfree(keys);
+  arrfree(values);
 
   if (map != MAP_FAILED)
     munmap(map, size);
@@ -308,7 +321,7 @@ FILE *sstable_open_file(SSTable *sst) {
   return fptr;
 }
 
-LString *search_in_sst_v2(SSTable sst, LString *key) {
+LString *search_in_sst(SSTable sst, LString *key) {
 
   FILE *fptr __attribute__((__cleanup__(cleanup_file)));
   //
@@ -328,10 +341,13 @@ LString *search_in_sst_v2(SSTable sst, LString *key) {
   char *index = malloc(sst_fc.footer.index_size);
   fread(index, sst_fc.footer.index_size, 1, fptr);
   u32 *index_restart_points =
-      (u32 *)&index[sst_fc.footer.index_offset -
-                    sst_fc.footer.index_restart_array_offset];
-  struct IndexItem *idx_item = IndexSection_search(
-      index, index_restart_points, sst_fc.footer.index_restart_array_size, key);
+      (u32 *)&index[sst_fc.footer.index_restart_array_offset];
+  struct IndexItem *idx_item =
+      IndexSection_search(index, index_restart_points,
+                          sst_fc.footer.index_restart_array_num_elements, key);
+  if (!idx_item) {
+    return NULL;
+  }
   u32 block_start = idx_item->offset;
 
   fseek(fptr, block_start, SEEK_SET);
@@ -339,7 +355,6 @@ LString *search_in_sst_v2(SSTable sst, LString *key) {
   fread(block_hdr, 1, sizeof(block_hdr), fptr);
   u32 block_original_size = block_hdr[0];
   u32 block_compressed_size = block_hdr[1];
-  fseek(fptr, sizeof(block_hdr), SEEK_CUR);
   char *block = malloc(block_compressed_size);
   fread(block, block_compressed_size, 1, fptr);
   // steps:
@@ -347,147 +362,147 @@ LString *search_in_sst_v2(SSTable sst, LString *key) {
   // 2. deserialize the block
   struct DataBlock *data_block = DataBlock_compressed_deserialize(
       block, block_original_size, block_compressed_size);
-  LString *value = malloc(sizeof(LString));
-  DataBlock_get(data_block, key, value);
+  LString *value = NULL;
+  DataBlock_get(data_block, key, &value);
   return value;
 }
 
-LString *search_in_sst(SSTable sst, LString *key) {
-  FILE *fptr __attribute__((__cleanup__(cleanup_file)));
-  //
-  fptr = sstable_open_file(&sst);
-  if (fptr == NULL) {
-    int err = errno;
-    printf("ERROR [%d]: cannot open file '%.*s'\n", err, sst.filepath->len,
-           sst.filepath->data);
-    return NULL;
-  }
-
-  struct stat st;
-  fstat(fileno(fptr), &st);
-
-  fseek(fptr, st.st_size - 8, SEEK_SET);
-  u32 index_offset;
-  u32 index_size;
-  u8 index_hdr[sizeof(index_offset) + sizeof(index_size)];
-  fread(index_hdr, 1, sizeof(index_hdr), fptr);
-  const u8 *hdr_src = index_hdr;
-  index_offset = scribe_get_u32(&hdr_src);
-  index_size = scribe_get_u32(&hdr_src);
-  fseek(fptr, index_offset, SEEK_SET);
-
-  char *index = malloc(index_size);
-  fread(index, index_size, 1, fptr);
-
-  hex_dump(index, index_size);
-  Array *keys = array_sized_new(32, sizeof(LString));
-  Array *offsets = array_sized_new(32, sizeof(u32));
-
-  deserialize_index(index, index_size, keys, offsets);
-  free(index);
-
-  int low = 0;
-  int high = keys->len - 1;
-  int mid;
-  int offset = -1;
-  while (low <= high) {
-    mid = (high + low) / 2;
-    int cmp_val = lstring_compare(key, &array_index(keys, LString, mid));
-    if (cmp_val == 0) {
-      offset = array_index(offsets, u32, mid);
-      break;
-    } else if (cmp_val > 0) {
-      offset = array_index(offsets, u32, mid);
-      low = mid + 1;
-    } else {
-      high = mid - 1;
-    }
-  }
-  printf("Offset: %d\n", offset);
-  if (offset == -1) {
-    offset = array_index(offsets, u32, keys->len - 1);
-    printf("Offset max: %d\n", offset);
-  }
-  // TODO: find nearest point here!!, do not set offset=-1 if not found
-  fseek(fptr, offset, SEEK_SET);
-  int block_len, uncompressed_len;
-  u8 block_hdr[sizeof(block_len) + sizeof(uncompressed_len)];
-  fread(block_hdr, 1, sizeof(block_hdr), fptr);
-  const u8 *block_src = block_hdr;
-  block_len = scribe_get_u32(&block_src);
-  uncompressed_len = scribe_get_u32(&block_src);
-  char *buf = malloc(block_len);
-  fread(buf, 1, block_len, fptr);
-  char *dst = malloc(uncompressed_len);
-  LZ4_decompress_safe(buf, dst, block_len, uncompressed_len);
-  char *cursor = dst;
-  struct SSTPair p = {0};
-  while (cursor - dst <= uncompressed_len) {
-    SSTPair_deserialize(&p, &cursor);
-    if (lstring_compare(&p.key, key) == 0) {
-      if (p.tombstone == 1) {
-        return NULL;
-      }
-      LString *value = malloc(sizeof(LString));
-      *value = p.value;
-      return value;
-    }
-  }
-  return NULL;
-
-  // TODO: do linear search here
-  printf("Beginning linear search\n");
-  printf("Searching for key: %.*s\n", key->len, key->data);
-  const u8 *cursor_src;
-  while (memcmp(cursor, &kPairTag, kTagSize) == 0) {
-    cursor += kTagSize;
-    LString k;
-    cursor_src = (const u8 *)cursor;
-    k.len = scribe_get_u16(&cursor_src);
-    k.data = malloc(k.len);
-    scribe_get_bytes(&cursor_src, k.data, k.len);
-    cursor = (char *)cursor_src;
-    printf("Current key: %.*s\n", k.len, k.data);
-    if (lstring_compare(&k, key) == 0) {
-      printf("Found match...\n");
-      LString *value = malloc(sizeof(LString));
-      cursor_src = (const u8 *)cursor;
-      value->len = scribe_get_u16(&cursor_src);
-      value->data = malloc(value->len);
-      scribe_get_bytes(&cursor_src, value->data, value->len);
-      cursor = (char *)cursor_src;
-      free(buf);
-      free(dst);
-      free(k.data);
-      for (u32 i = 0; i < keys->len; i++) {
-        free(array_index(keys, LString, i).data);
-      }
-      free(keys->data);
-      free(keys);
-      free(offsets->data);
-      free(offsets);
-      return value;
-    } else {
-      u16 value_len;
-      cursor_src = (const u8 *)cursor;
-      value_len = scribe_get_u16(&cursor_src);
-      cursor_src += value_len;
-      cursor = (char *)cursor_src;
-      free(k.data);
-      continue;
-    }
-  }
-  free(buf);
-  free(dst);
-  for (u32 i = 0; i < keys->len; i++) {
-    free(array_index(keys, LString, i).data);
-  }
-  free(keys->data);
-  free(keys);
-  free(offsets->data);
-  free(offsets);
-  return NULL;
-}
+// LString *search_in_sst(SSTable sst, LString *key) {
+//   FILE *fptr __attribute__((__cleanup__(cleanup_file)));
+//   //
+//   fptr = sstable_open_file(&sst);
+//   if (fptr == NULL) {
+//     int err = errno;
+//     printf("ERROR [%d]: cannot open file '%.*s'\n", err, sst.filepath->len,
+//            sst.filepath->data);
+//     return NULL;
+//   }
+//
+//   struct stat st;
+//   fstat(fileno(fptr), &st);
+//
+//   fseek(fptr, st.st_size - 8, SEEK_SET);
+//   u32 index_offset;
+//   u32 index_size;
+//   u8 index_hdr[sizeof(index_offset) + sizeof(index_size)];
+//   fread(index_hdr, 1, sizeof(index_hdr), fptr);
+//   const u8 *hdr_src = index_hdr;
+//   index_offset = scribe_get_u32(&hdr_src);
+//   index_size = scribe_get_u32(&hdr_src);
+//   fseek(fptr, index_offset, SEEK_SET);
+//
+//   char *index = malloc(index_size);
+//   fread(index, index_size, 1, fptr);
+//
+//   hex_dump(index, index_size);
+//   Array *keys = array_sized_new(32, sizeof(LString));
+//   Array *offsets = array_sized_new(32, sizeof(u32));
+//
+//   deserialize_index(index, index_size, keys, offsets);
+//   free(index);
+//
+//   int low = 0;
+//   int high = keys->len - 1;
+//   int mid;
+//   int offset = -1;
+//   while (low <= high) {
+//     mid = (high + low) / 2;
+//     int cmp_val = lstring_compare(key, &array_index(keys, LString, mid));
+//     if (cmp_val == 0) {
+//       offset = array_index(offsets, u32, mid);
+//       break;
+//     } else if (cmp_val > 0) {
+//       offset = array_index(offsets, u32, mid);
+//       low = mid + 1;
+//     } else {
+//       high = mid - 1;
+//     }
+//   }
+//   printf("Offset: %d\n", offset);
+//   if (offset == -1) {
+//     offset = array_index(offsets, u32, keys->len - 1);
+//     printf("Offset max: %d\n", offset);
+//   }
+//   // TODO: find nearest point here!!, do not set offset=-1 if not found
+//   fseek(fptr, offset, SEEK_SET);
+//   int block_len, uncompressed_len;
+//   u8 block_hdr[sizeof(block_len) + sizeof(uncompressed_len)];
+//   fread(block_hdr, 1, sizeof(block_hdr), fptr);
+//   const u8 *block_src = block_hdr;
+//   block_len = scribe_get_u32(&block_src);
+//   uncompressed_len = scribe_get_u32(&block_src);
+//   char *buf = malloc(block_len);
+//   fread(buf, 1, block_len, fptr);
+//   char *dst = malloc(uncompressed_len);
+//   LZ4_decompress_safe(buf, dst, block_len, uncompressed_len);
+//   char *cursor = dst;
+//   struct SSTPair p = {0};
+//   while (cursor - dst <= uncompressed_len) {
+//     SSTPair_deserialize(&p, &cursor);
+//     if (lstring_compare(&p.key, key) == 0) {
+//       if (p.tombstone == 1) {
+//         return NULL;
+//       }
+//       LString *value = malloc(sizeof(LString));
+//       *value = p.value;
+//       return value;
+//     }
+//   }
+//   return NULL;
+//
+//   // TODO: do linear search here
+//   printf("Beginning linear search\n");
+//   printf("Searching for key: %.*s\n", key->len, key->data);
+//   const u8 *cursor_src;
+//   while (memcmp(cursor, &kPairTag, kTagSize) == 0) {
+//     cursor += kTagSize;
+//     LString k;
+//     cursor_src = (const u8 *)cursor;
+//     k.len = scribe_get_u16(&cursor_src);
+//     k.data = malloc(k.len);
+//     scribe_get_bytes(&cursor_src, k.data, k.len);
+//     cursor = (char *)cursor_src;
+//     printf("Current key: %.*s\n", k.len, k.data);
+//     if (lstring_compare(&k, key) == 0) {
+//       printf("Found match...\n");
+//       LString *value = malloc(sizeof(LString));
+//       cursor_src = (const u8 *)cursor;
+//       value->len = scribe_get_u16(&cursor_src);
+//       value->data = malloc(value->len);
+//       scribe_get_bytes(&cursor_src, value->data, value->len);
+//       cursor = (char *)cursor_src;
+//       free(buf);
+//       free(dst);
+//       free(k.data);
+//       for (u32 i = 0; i < keys->len; i++) {
+//         free(array_index(keys, LString, i).data);
+//       }
+//       free(keys->data);
+//       free(keys);
+//       free(offsets->data);
+//       free(offsets);
+//       return value;
+//     } else {
+//       u16 value_len;
+//       cursor_src = (const u8 *)cursor;
+//       value_len = scribe_get_u16(&cursor_src);
+//       cursor_src += value_len;
+//       cursor = (char *)cursor_src;
+//       free(k.data);
+//       continue;
+//     }
+//   }
+//   free(buf);
+//   free(dst);
+//   for (u32 i = 0; i < keys->len; i++) {
+//     free(array_index(keys, LString, i).data);
+//   }
+//   free(keys->data);
+//   free(keys);
+//   free(offsets->data);
+//   free(offsets);
+//   return NULL;
+// }
 
 // Helper to inspect the raw bytes of the serialized output
 void debug_dump_buffer(const char *label, const void *data, size_t size) {

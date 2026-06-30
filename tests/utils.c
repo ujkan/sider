@@ -37,7 +37,7 @@ Array *test_utils_generate_kv_pairs_with_prefix(u32 count,
   for (u32 i = 0; i < count; i++) {
     char key_buf[64];
     char value_buf[64];
-    snprintf(key_buf, sizeof(key_buf), "%s%03u", key_prefix, i * 2);
+    snprintf(key_buf, sizeof(key_buf), "%s%03u", key_prefix, i);
     snprintf(value_buf, sizeof(value_buf), "%s%03u", value_prefix, i);
     struct SSTPair pair = test_utils_make_sst_pair(0, key_buf, 0, value_buf);
     array_push(pairs, &pair);

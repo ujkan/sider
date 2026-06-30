@@ -5,6 +5,8 @@
 #include <stdlib.h>
 #include <string.h>
 
+const int kLStringLenSize = 2;
+
 void lstring_free(void *data) {
   free(((LString *)data)->data);
   free((void *)data);

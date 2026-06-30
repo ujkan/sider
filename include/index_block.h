@@ -18,7 +18,7 @@ struct IndexSection {
 };
 
 struct IndexItem *IndexSection_search(char *index_section, u32 *index_section_restart_points, u32 count, LString *key);
-LString *IndexSection_serialize(struct IndexSection *iblock);
+LString *IndexSection_serialize(struct IndexSection *iblock, u32 *restart_point_offset);
 struct IndexSection *IndexSection_deserialize(char *buf, u32 len);
 
 #endif // INDEX_BLOCK_H

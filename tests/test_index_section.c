@@ -98,10 +98,10 @@ void test_IndexSection_search() {
   struct IndexItem *item5 = IndexSection_search(index, restart_points, 4, key5);
   TEST_ASSERT_EQUAL_UINT32(item3->offset, item5->offset);
 
-  // nearest to "a"  is "foo"
+  // "a" is smaller than smallest key "foo", thus NULL
   LString *key6 = lstring_create_from_buf(1, "a");
   struct IndexItem *item6 = IndexSection_search(index, restart_points, 4, key6);
-  TEST_ASSERT_EQUAL_UINT32(item1->offset, item6->offset);
+  TEST_ASSERT_NULL(item6);
 
   // nearest to "z" is "x"
   LString *key7 = lstring_create_from_buf(1, "z");
